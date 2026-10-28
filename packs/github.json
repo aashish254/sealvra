@@ -1,0 +1,294 @@
+{
+  "body_schemas": {
+    "github_comment": {
+      "forbidden_substrings": [
+        "/deploy",
+        "/approve",
+        "/backport",
+        "@claude merge",
+        "@claude lgtm",
+        "@claude approve"
+      ]
+    },
+    "github_contents_delete": {
+      "required": [
+        "message",
+        "sha"
+      ]
+    },
+    "github_contents_put": {
+      "required": [
+        "message",
+        "content"
+      ]
+    }
+  },
+  "content_sha256": "ad29f88a4aa0288c3fd8635e382370b3159c64fbd0bee016aa9b340105d84f88",
+  "endpoints": [
+    {
+      "capability": "destructive",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/graphql"
+    },
+    {
+      "capability": "financial",
+      "level": 4,
+      "method": "GET",
+      "path_pattern": "/user/settings/billing/**"
+    },
+    {
+      "capability": "financial",
+      "level": 4,
+      "method": "GET",
+      "path_pattern": "/users/*/settings/billing/**"
+    },
+    {
+      "capability": "financial",
+      "level": 4,
+      "method": "GET",
+      "path_pattern": "/orgs/*/settings/billing/**"
+    },
+    {
+      "capability": "destructive",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/user/keys"
+    },
+    {
+      "capability": "destructive",
+      "level": 4,
+      "method": "DELETE",
+      "path_pattern": "/user/keys/*"
+    },
+    {
+      "capability": "destructive",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/gists"
+    },
+    {
+      "capability": "destructive",
+      "level": 4,
+      "method": "PATCH",
+      "path_pattern": "/gists/*"
+    },
+    {
+      "capability": "destructive",
+      "level": 4,
+      "method": "DELETE",
+      "path_pattern": "/gists/*"
+    },
+    {
+      "capability": "destructive",
+      "level": 4,
+      "method": "PUT",
+      "path_pattern": "/repos/*/*/actions/secrets/*"
+    },
+    {
+      "capability": "destructive",
+      "level": 4,
+      "method": "DELETE",
+      "path_pattern": "/repos/*/*/actions/secrets/*"
+    },
+    {
+      "capability": "destructive",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/actions/secrets/*"
+    },
+    {
+      "capability": "destructive",
+      "level": 4,
+      "method": "DELETE",
+      "path_pattern": "/repos/*/*"
+    },
+    {
+      "capability": "write",
+      "level": 3,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/git/refs"
+    },
+    {
+      "capability": "write",
+      "level": 3,
+      "method": "PATCH",
+      "path_pattern": "/repos/*/*/git/refs/**"
+    },
+    {
+      "capability": "destructive",
+      "level": 3,
+      "method": "DELETE",
+      "path_pattern": "/repos/*/*/git/refs/**"
+    },
+    {
+      "capability": "destructive",
+      "level": 3,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/branches/*/rename"
+    },
+    {
+      "capability": "destructive",
+      "level": 3,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/merges"
+    },
+    {
+      "capability": "destructive",
+      "level": 3,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/merge-upstream"
+    },
+    {
+      "capability": "destructive",
+      "level": 3,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/pulls/*/merge"
+    },
+    {
+      "capability": "destructive",
+      "level": 3,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/dispatches"
+    },
+    {
+      "capability": "destructive",
+      "level": 3,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/releases"
+    },
+    {
+      "capability": "destructive",
+      "level": 3,
+      "method": "DELETE",
+      "path_pattern": "/repos/*/*/releases/*"
+    },
+    {
+      "capability": "destructive",
+      "level": 3,
+      "method": "DELETE",
+      "path_pattern": "/repos/*/*/releases/assets/*"
+    },
+    {
+      "capability": "write",
+      "level": 3,
+      "method": "PATCH",
+      "path_pattern": "/repos/*/*/releases/*"
+    },
+    {
+      "body_schema": "github_contents_put",
+      "capability": "write",
+      "level": 3,
+      "method": "PUT",
+      "path_pattern": "/repos/*/*/contents/**"
+    },
+    {
+      "body_schema": "github_contents_delete",
+      "capability": "destructive",
+      "level": 3,
+      "method": "DELETE",
+      "path_pattern": "/repos/*/*/contents/**"
+    },
+    {
+      "body_schema": "github_comment",
+      "capability": "write",
+      "level": 2,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/issues"
+    },
+    {
+      "body_schema": "github_comment",
+      "capability": "write",
+      "level": 2,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/issues/*/comments"
+    },
+    {
+      "capability": "write",
+      "level": 2,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/pulls"
+    },
+    {
+      "body_schema": "github_comment",
+      "capability": "write",
+      "level": 2,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/pulls/*/comments"
+    },
+    {
+      "body_schema": "github_comment",
+      "capability": "write",
+      "level": 2,
+      "method": "POST",
+      "path_pattern": "/repos/*/*/pulls/*/reviews"
+    },
+    {
+      "capability": "write",
+      "level": 2,
+      "method": "PATCH",
+      "path_pattern": "/repos/*/*/issues/*"
+    },
+    {
+      "capability": "write",
+      "level": 2,
+      "method": "PATCH",
+      "path_pattern": "/repos/*/*/pulls/*"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/user"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/user/repos"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/user/keys"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/gists/*"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/rate_limit"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/repos/**"
+    },
+    {
+      "capability": "read_public",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/users/*"
+    },
+    {
+      "capability": "read_public",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/orgs/*"
+    }
+  ],
+  "issued_at": "2026-10-28",
+  "max_age_days": 90,
+  "name": "github",
+  "notes": "GitHub pack for Keyholder v0.1 (CONTRACT section 7). GraphQL is denied outright; billing is financial and denied; account SSH-key writes, gist writes, secret writes/rotation and repo deletion are hard denies (level 4). PR merges are destructive, approval-gated (level 3, fresh per-call approval) -- see W05 report re CONTRACT 'approval level 4' wording. Git-protocol pushes are NOT modelled here: if git interposition is not built, pushes bypass the broker and are not logged/gated (CONTRACT section 7); this pack must never be cited as covering git pushes. Comment-command patterns are denied via the github_comment body schema.",
+  "read_like_posts": [],
+  "spend_alerts_estimated": {},
+  "version": "0.1.0"
+}

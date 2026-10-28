@@ -1,0 +1,12 @@
+{
+  "counts": {
+    "test_generated_audit.py": 359,
+    "test_generated_malformed.py": 1452,
+    "test_generated_misc.py": 557,
+    "test_generated_policy.py": 4242,
+    "test_generated_proxy.py": 311,
+    "test_generated_sessions.py": 3776
+  },
+  "seed": 20261028,
+  "total_generated": 10697
+}

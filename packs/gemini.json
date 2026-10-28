@@ -1,0 +1,178 @@
+{
+  "body_schemas": {
+    "gemini_generate_content": {
+      "forbidden": [
+        "cachedContent"
+      ],
+      "forbidden_substrings": [
+        "urlContext"
+      ]
+    }
+  },
+  "content_sha256": "34cfa538109b6a44d79bb6238950643d540b0c81bad128f784cf50aa0f668755",
+  "endpoints": [
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "POST",
+      "path_pattern": "/v1beta/models/*:countTokens"
+    },
+    {
+      "body_schema": "gemini_generate_content",
+      "capability": "write",
+      "level": 2,
+      "method": "POST",
+      "path_pattern": "/v1beta/models/*:generateContent",
+      "spend": true
+    },
+    {
+      "body_schema": "gemini_generate_content",
+      "capability": "write",
+      "level": 2,
+      "method": "POST",
+      "path_pattern": "/v1beta/models/*:streamGenerateContent",
+      "spend": true
+    },
+    {
+      "capability": "write",
+      "level": 2,
+      "method": "POST",
+      "path_pattern": "/v1beta/models/*:embedContent",
+      "spend": true
+    },
+    {
+      "capability": "write",
+      "level": 2,
+      "method": "POST",
+      "path_pattern": "/v1beta/models/*:batchEmbedContents",
+      "spend": true
+    },
+    {
+      "capability": "write",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/v1beta/interactions/**"
+    },
+    {
+      "capability": "write",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/v1beta/batches"
+    },
+    {
+      "capability": "write",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/v1beta/live/**"
+    },
+    {
+      "capability": "write",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/v1beta/agents/**"
+    },
+    {
+      "capability": "write",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/v1beta/fileSearchStores"
+    },
+    {
+      "capability": "write",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/v1beta/cachedContents"
+    },
+    {
+      "capability": "destructive",
+      "level": 3,
+      "method": "DELETE",
+      "path_pattern": "/v1beta/cachedContents/*"
+    },
+    {
+      "capability": "write",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/v1beta/files"
+    },
+    {
+      "capability": "write",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/upload/v1beta/files"
+    },
+    {
+      "capability": "write",
+      "level": 4,
+      "method": "POST",
+      "path_pattern": "/v1beta/upload/**"
+    },
+    {
+      "capability": "read_public",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/v1beta/models"
+    },
+    {
+      "capability": "read_public",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/v1beta/models/*"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/v1beta/files"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/v1beta/files/*"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/v1beta/cachedContents/*"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/v1beta/batches/*"
+    },
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "GET",
+      "path_pattern": "/v1beta/fileSearchStores/*"
+    },
+    {
+      "capability": "financial",
+      "level": 4,
+      "method": "GET",
+      "path_pattern": "/v1beta/billing/**"
+    }
+  ],
+  "issued_at": "2026-10-28",
+  "max_age_days": 90,
+  "name": "gemini",
+  "notes": "Gemini pack for Keyholder v0.1 (CONTRACT section 7, auth-key model only). Native mode uses the x-goog-api-key header only; '?key=' is never used (proxy enforces). Paid inference (generateContent, streamGenerateContent, embed) is write class with spend flagged -- spend limits here are spend alerts (estimated), never exact caps. Interactions API, batch jobs, Live API, managed agents, remote MCP and fileSearchStores creation are denied (server-side state the broker cannot police). cachedContent creation is denied; fileData.fileUri references inside allowed calls are denied unless the URI is in the session creation ledger (engine parameter). Upload paths are denied in v0.1. URL-context provider-side fetching is denied via the generateContent body schema.",
+  "read_like_posts": [
+    {
+      "capability": "read_account",
+      "level": 1,
+      "method": "POST",
+      "path_pattern": "/v1beta/models/*:countTokens"
+    }
+  ],
+  "spend_alerts_estimated": {
+    "copy": "spend alerts (estimated)",
+    "note": "Placeholder estimate thresholds pending manager confirmation of v0.1 spend tiers; these are estimates only, never exact caps.",
+    "per_day_estimate": 50,
+    "per_session_estimate": 10
+  },
+  "version": "0.1.0"
+}

@@ -1,0 +1,288 @@
+# Keyholder v0.2 CI -- PREPARED, NOT RUN; NEVER RUN.
+#
+# W19 owns this file (CONTRACT §13.6). No repository exists yet, so
+# this workflow has never run and no passing run is claimed anywhere
+# in it. Do not add a status badge or "passing" wording until a real
+# run exists. Nothing here is a release, a signature, or an
+# authorisation.
+#
+# What this workflow does when a repository exists (each job):
+#   * linux / windows / macos: install ONLY the two pinned
+#     dependencies from requirements.txt (cold cache: --no-cache-dir,
+#     no actions/cache anywhere -- F16-B4), run the FULL test suite
+#     by unittest discovery (no subset, no --failfast, no skips
+#     hidden: the count step reports discovered/passed/failed/skipped
+#     and fails on any failure or error), run the W19 supply-chain
+#     gates (scripts/sbom.py + --diff against the committed SBOM,
+#     scripts/repro_check.py), build the zipapp with
+#     SOURCE_DATE_EPOCH set, and upload the zipapp + fresh SBOM +
+#     test counts as artifacts so test evidence can be bound to the
+#     exact artifact hash (F17 P-06), not to a filename alone.
+#   * rebuild: an independent rebuild of the same checkout at the
+#     same SOURCE_DATE_EPOCH whose hash must equal the linux job's
+#     hash before anything may proceed toward signing (F16-B2 --
+#     note honestly: same platform/workflow family, so this is a
+#     determinism check, NOT the independently-sourced-toolchain
+#     rebuild, which is a separate scheduled gate with a named owner
+#     and is still open).
+#   * sign: PREPARED ONLY, fail-closed. It has NO checkout step
+#     (F16 punch 13: the signing job must not see source), runs in
+#     the `signing` environment, and its final step deliberately
+#     fails until a protected environment with TWO required human
+#     reviewers exists in repository settings. Environment protection
+#     rules (required reviewers, allowed tags, wait timer) CANNOT be
+#     expressed in YAML -- they are repository settings, and anyone
+#     claiming this file alone enforces two-person approval is
+#     wrong. The two approvers' pre-sign checklist is code in the
+#     verify step: artifact hash == rebuild-attested hash, fresh
+#     SBOM components == committed SBOM, no secret references.
+#     Signing itself (keys, Sigstore, authorisation record) does not
+#     exist in v0.2 and is not performed or claimed here.
+#
+# SOURCE_DATE_EPOCH (F16-B5): the build jobs below derive it from
+# the commit timestamp as a deterministic CI-build value. That is
+# NOT the release rule: a real release workflow MUST derive it from
+# the signed tag's timestamp (commit timestamps are
+# committer-controlled) and record which value was used in the
+# provenance. Do not copy this step into a release workflow
+# unchanged.
+#
+# Action pinning (F16-C7, OPEN): actions are referenced by major
+# version tag below because their full commit SHAs are not known to
+# this local build and must never be invented here. Before the first
+# real run, pin every action to its full SHA and record the SHAs in
+# docs/supply-chain.md; until then this workflow is not
+# release-ready. The PR-target trigger form is forbidden anywhere
+# in this file; fork-PR jobs run without any credential-store
+# reference (a test asserts the workflow contains none).
+#
+# Platform-check interface (W16/W17 own the check scripts):
+#   * Windows job runs:  python scripts/windows_check.py
+#   * macOS job runs:    python scripts/macos_check.py
+# Both run from the repository root, take no arguments, exit 0 on
+# pass / non-zero on failure, and are NOT conditional or skippable
+# (a skipped gate is not a passed gate).
+#
+# The 10k suite (CONTRACT §13.5, W10): the test step runs full
+# unittest discovery, which counts generated cases as discovered
+# tests; the count step reports the totals. This workflow asserts
+# no fixed count -- a hardcoded count would be padding pressure.
+# If discovery reports failures, the job fails. Skipped tests are
+# reported, not hidden; platform skips (e.g. Windows/macOS checks
+# on Linux) are expected and are accounted by the test registry
+# (W08), not by this workflow. Runtime budget: the full suite is
+# targeted under ~10 minutes on this class of runner; the job
+# timeout below is a backstop, not a target.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set SOURCE_DATE_EPOCH (CI-build value; see header -- release must use signed-tag timestamp)
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+      - name: Install pinned dependencies (cold cache, no network reuse)
+        run: pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
+      - name: Run full test suite
+        run: python -m unittest discover -s tests -v 2>&1 | tee test-output.txt
+      - name: Report test counts (fails on any failure or error)
+        run: python -c "import re,sys; t=open('test-output.txt').read(); m=re.search(r'Ran (\d+) tests? in .*?[\r\n]+(OK|FAILED)', t, re.S); sys.exit(0 if m and m.group(2)=='OK' else 1); print('tests ran:', m.group(1) if m else '?')"
+      - name: Supply-chain gates (SBOM + diff vs committed SBOM)
+        run: |
+          python scripts/sbom.py --diff sbom.json --output sbom.fresh.json
+          python scripts/repro_check.py
+      - name: Release gates (grep gate + registry gate, explicit)
+        # Full discovery above already runs tests.test_registry and
+        # tests.test_gates; this step makes the two gates visible and
+        # fail-fast in CI (W08 open item, closed in v0.2 integration).
+        run: |
+          python scripts/grep_gates.py
+          python -m unittest tests.test_registry tests.test_gates
+      - name: Build zipapp
+        run: python scripts/make_zipapp.py
+      - name: Record zipapp and SBOM hashes
+        run: python -c "import hashlib, pathlib; [print(f'{p} sha256=' + hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()) for p in ('dist/keyholder.pyz', 'sbom.fresh.json')]"
+      - name: Upload zipapp, SBOM and test counts
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyholder-linux
+          path: |
+            dist/keyholder.pyz
+            sbom.fresh.json
+            sbom.json
+            test-output.txt
+
+  windows:
+    name: windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set SOURCE_DATE_EPOCH (CI-build value; see header -- release must use signed-tag timestamp)
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$env:GITHUB_ENV"
+      - name: Install pinned dependencies (cold cache, no network reuse)
+        run: pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
+      - name: Run full test suite
+        run: python -m unittest discover -s tests -v 2>&1 | tee test-output.txt
+      - name: Report test counts (fails on any failure or error)
+        run: python -c "import re,sys; t=open('test-output.txt').read(); m=re.search(r'Ran (\d+) tests? in .*?[\r\n]+(OK|FAILED)', t, re.S); sys.exit(0 if m and m.group(2)=='OK' else 1); print('tests ran:', m.group(1) if m else '?')"
+      - name: Run Windows platform check (W16)
+        run: python scripts/windows_check.py
+      - name: Supply-chain gates (SBOM + diff vs committed SBOM)
+        run: |
+          python scripts/sbom.py --diff sbom.json --output sbom.fresh.json
+          python scripts/repro_check.py
+      - name: Release gates (grep gate + registry gate, explicit)
+        run: |
+          python scripts/grep_gates.py
+          python -m unittest tests.test_registry tests.test_gates
+      - name: Build zipapp
+        run: python scripts/make_zipapp.py
+      - name: Record zipapp and SBOM hashes
+        run: python -c "import hashlib, pathlib; [print(f'{p} sha256=' + hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()) for p in ('dist/keyholder.pyz', 'sbom.fresh.json')]"
+      - name: Upload zipapp, SBOM and test counts
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyholder-windows
+          path: |
+            dist/keyholder.pyz
+            sbom.fresh.json
+            test-output.txt
+
+  macos:
+    name: macos
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set SOURCE_DATE_EPOCH (CI-build value; see header -- release must use signed-tag timestamp)
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+      - name: Install pinned dependencies (cold cache, no network reuse)
+        run: pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
+      - name: Run full test suite
+        run: python -m unittest discover -s tests -v 2>&1 | tee test-output.txt
+      - name: Report test counts (fails on any failure or error)
+        run: python -c "import re,sys; t=open('test-output.txt').read(); m=re.search(r'Ran (\d+) tests? in .*?[\r\n]+(OK|FAILED)', t, re.S); sys.exit(0 if m and m.group(2)=='OK' else 1); print('tests ran:', m.group(1) if m else '?')"
+      - name: Run macOS platform check (W17)
+        run: python scripts/macos_check.py
+      - name: Supply-chain gates (SBOM + diff vs committed SBOM)
+        run: |
+          python scripts/sbom.py --diff sbom.json --output sbom.fresh.json
+          python scripts/repro_check.py
+      - name: Release gates (grep gate + registry gate, explicit)
+        run: |
+          python scripts/grep_gates.py
+          python -m unittest tests.test_registry tests.test_gates
+      - name: Build zipapp
+        run: python scripts/make_zipapp.py
+      - name: Record zipapp and SBOM hashes
+        run: python -c "import hashlib, pathlib; [print(f'{p} sha256=' + hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()) for p in ('dist/keyholder.pyz', 'sbom.fresh.json')]"
+      - name: Upload zipapp, SBOM and test counts
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyholder-macos
+          path: |
+            dist/keyholder.pyz
+            sbom.fresh.json
+            test-output.txt
+
+  rebuild:
+    name: rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [linux]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set SOURCE_DATE_EPOCH (must match the build job's value for this commit)
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+      - name: Install pinned dependencies (cold cache)
+        run: pip install --no-cache-dir --disable-pip-version-check -r requirements.txt
+      - name: Rebuild zipapp independently of the build job's artifact
+        run: python scripts/make_zipapp.py --output dist/rebuilt.pyz
+      - name: Download build artifact for comparison
+        uses: actions/download-artifact@v4
+        with:
+          name: keyholder-linux
+          path: rebuild-compare
+      - name: Rebuild hash must equal build hash (mismatch halts everything before signing)
+        run: python -c "import hashlib,pathlib,sys; a=hashlib.sha256(pathlib.Path('dist/rebuilt.pyz').read_bytes()).hexdigest(); b=hashlib.sha256(pathlib.Path('rebuild-compare/dist/keyholder.pyz').read_bytes()).hexdigest(); print('rebuild sha256='+a); print('build    sha256='+b); sys.exit(0 if a==b else 1)"
+      - name: Upload rebuilt zipapp for the signing job's comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyholder-rebuild
+          path: dist/rebuilt.pyz
+
+  sign:
+    name: sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [rebuild]
+    # NO checkout step in this job, by design (F16 punch 13).
+    # Protected environment: the `signing` environment MUST have two
+    # required human reviewers, allowed-tag rules, and a wait timer
+    # configured in repository settings -- YAML cannot express them.
+    environment: signing
+    permissions: {}
+    steps:
+      - name: Download build artifact (no source checkout)
+        uses: actions/download-artifact@v4
+        with:
+          name: keyholder-linux
+          path: sign-build
+      - name: Download rebuild artifact (no source checkout)
+        uses: actions/download-artifact@v4
+        with:
+          name: keyholder-rebuild
+          path: sign-rebuild
+      - name: Pre-sign validation checklist (code, not a document)
+        # Real checks, both must pass before any future signing step
+        # is ever added here: (1) build hash == rebuild hash;
+        # (2) fresh SBOM components == committed SBOM components
+        # (name, version, licence). The committed SBOM travels as an
+        # artifact from the linux job because this job has no checkout.
+        run: |
+          python -c "import hashlib,pathlib,sys,json; b=pathlib.Path('sign-build/dist/keyholder.pyz').read_bytes(); r=pathlib.Path('sign-rebuild/dist/rebuilt.pyz').read_bytes(); hb=hashlib.sha256(b).hexdigest(); hr=hashlib.sha256(r).hexdigest(); print('build sha256='+hb); print('rebuild sha256='+hr); assert hb==hr, 'build/rebuild hash mismatch -- HALT, never sign'; f={c['name']:(c['version'],str(c.get('licenses'))) for c in json.load(open('sign-build/sbom.fresh.json'))['components']}; k={c['name']:(c['version'],str(c.get('licenses'))) for c in json.load(open('sign-build/sbom.json'))['components']}; assert f==k, 'SBOM components changed vs committed SBOM -- HALT, never sign'; print('pre-sign checklist PASS')"
+      - name: Signing NOT CONFIGURED -- fail closed (prepared job only)
+        run: |
+          echo "No signing key, no protected environment with two approvers, and no repository exist yet."
+          echo "This job must not sign anything until those exist in repository settings and the release record."
+          exit 1

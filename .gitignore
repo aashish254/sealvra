@@ -1,0 +1,5 @@
+# Local virtualenv and build output - never committed.
+.venv/
+__pycache__/
+*.pyc
+dist/
