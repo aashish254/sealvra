@@ -12,7 +12,7 @@ No real uninstall of a user's data is ever performed: every
 install/uninstall run here uses a temporary sandbox HOME, never the
 real home directory.
 
-The real keyholder/ package is NOT built by these tests as a
+The real sealvra/ package is NOT built by these tests as a
 pass/fail gate on its own behaviour: W10 owns it and it has not
 landed yet. test_real_package_build_fails_closed_or_builds records
 the current state honestly -- fail-closed while __main__.py is
@@ -40,9 +40,9 @@ import sys
 
 def main():
     if "--help" in sys.argv or "-h" in sys.argv:
-        print("usage: keyholder [--help]")
+        print("usage: sealvra [--help]")
         return 0
-    print("keyholder fixture")
+    print("sealvra fixture")
     return 0
 
 
@@ -62,9 +62,9 @@ def run(cmd, env=None, input_text=None):
 
 class FixtureMixin(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="keyholder-w20-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="sealvra-w20-"))
         self.fixture_root = self.tmp / "fixture"
-        pkg = self.fixture_root / "keyholder"
+        pkg = self.fixture_root / "sealvra"
         pkg.mkdir(parents=True)
         (pkg / "__init__.py").write_text('"""Fixture package."""\n')
         (pkg / "__main__.py").write_text(FIXTURE_MAIN)
@@ -102,13 +102,13 @@ class TestZipapp(FixtureMixin):
                 zb.getinfo("__main__.py").date_time)
 
     def test_zipapp_help_runs(self):
-        pyz = self.build_fixture("keyholder.pyz", 1700000000)
+        pyz = self.build_fixture("sealvra.pyz", 1700000000)
         result = run([sys.executable, str(pyz), "--help"])
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("usage: keyholder", result.stdout)
+        self.assertIn("usage: sealvra", result.stdout)
 
     def test_shebang_and_no_absolute_paths(self):
-        pyz = self.build_fixture("keyholder.pyz", 1700000000)
+        pyz = self.build_fixture("sealvra.pyz", 1700000000)
         raw = pyz.read_bytes()
         self.assertTrue(raw.startswith(b"#!/usr/bin/env python3\n"))
         with zipfile.ZipFile(pyz) as zf:
@@ -118,15 +118,15 @@ class TestZipapp(FixtureMixin):
         # Top-level entry is a shim delegating to W10's package, not
         # a copy of it (the package entry uses a relative import).
         self.assertIn("run_module", top_main)
-        self.assertIn("keyholder", top_main)
+        self.assertIn("sealvra", top_main)
         for name in names:
             self.assertFalse(name.startswith("/"), name)
             self.assertNotIn(str(self.fixture_root), name)
         self.assertIn("__main__.py", names)
-        self.assertIn("keyholder/__main__.py", names)
+        self.assertIn("sealvra/__main__.py", names)
 
     def test_real_package_build_fails_closed_or_builds(self):
-        entry = BUILD_ROOT / "keyholder" / "__main__.py"
+        entry = BUILD_ROOT / "sealvra" / "__main__.py"
         out = self.tmp / "real.pyz"
         result = run(
             [sys.executable, str(MAKE_ZIPAPP),
@@ -192,13 +192,13 @@ class TestInstallUninstallSandbox(FixtureMixin):
     def sandbox(self):
         home = self.tmp / "home"
         (home / ".local" / "bin").mkdir(parents=True)
-        (home / ".local" / "share" / "keyholder").mkdir(parents=True)
-        launcher = home / ".local" / "bin" / "keyholder"
+        (home / ".local" / "share" / "sealvra").mkdir(parents=True)
+        launcher = home / ".local" / "bin" / "sealvra"
         launcher.write_text("#!/bin/sh\nexit 0\n")
         launcher.chmod(0o755)
-        program = home / ".local" / "share" / "keyholder" / "keyholder.pyz"
+        program = home / ".local" / "share" / "sealvra" / "sealvra.pyz"
         program.write_text("# fake program\n")
-        vault = home / ".keyholder"
+        vault = home / ".sealvra"
         vault.mkdir()
         marker = vault / "marker.txt"
         marker.write_text("TEST-ONLY-vault-marker\n")
@@ -238,14 +238,14 @@ class TestInstallUninstallSandbox(FixtureMixin):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(vault.exists())
         self.assertIn("does NOT revoke", result.stdout)
-        receipts = list(home.glob("keyholder-wipe-receipt-*.json"))
+        receipts = list(home.glob("sealvra-wipe-receipt-*.json"))
         self.assertEqual(len(receipts), 1)
         self.assertIn("vault_wipe", receipts[0].read_text())
 
     def test_install_then_reinstall_preserves_vault(self):
         home = self.tmp / "home2"
         home.mkdir()
-        pyz = self.build_fixture("keyholder.pyz", 1700000000)
+        pyz = self.build_fixture("sealvra.pyz", 1700000000)
         vault = home / "vault"
         prefix = home / ".local"
         env = {"HOME": str(home), "PATH": os.environ["PATH"]}
@@ -255,14 +255,14 @@ class TestInstallUninstallSandbox(FixtureMixin):
             env=env,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        installed = prefix / "share" / "keyholder" / "keyholder.pyz"
-        launcher = prefix / "bin" / "keyholder"
+        installed = prefix / "share" / "sealvra" / "sealvra.pyz"
+        launcher = prefix / "bin" / "sealvra"
         self.assertTrue(installed.exists())
         self.assertTrue(launcher.exists())
         self.assertEqual(stat.S_IMODE(vault.stat().st_mode), 0o700)
         help_result = run([str(launcher), "--help"], env=env)
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
-        self.assertIn("usage: keyholder", help_result.stdout)
+        self.assertIn("usage: sealvra", help_result.stdout)
         marker = vault / "marker.txt"
         marker.write_text("TEST-ONLY-vault-marker\n")
         result2 = run(
@@ -505,7 +505,7 @@ class TestW19ColdCachePackaging(unittest.TestCase):
                          env=env)
             self.assertEqual(result.returncode, 0, result.stderr)
             cold = td / "cold"
-            shutil.copytree(BUILD_ROOT / "keyholder", cold / "keyholder",
+            shutil.copytree(BUILD_ROOT / "sealvra", cold / "sealvra",
                             ignore=shutil.ignore_patterns("__pycache__"))
             shutil.copytree(BUILD_ROOT / "scripts", cold / "scripts",
                             ignore=shutil.ignore_patterns("__pycache__"))

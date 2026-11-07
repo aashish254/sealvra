@@ -1,4 +1,4 @@
-# Keyholder v0.1 — adapters (GitHub + Gemini, corrected)
+# Sealvra v0.1 — adapters (GitHub + Gemini, corrected)
 
 > **DRAFT.** These adapter rules are the corrected v3 rules
 > (GitHub: v3 §1J; Gemini: v3 §1I, rewritten — do NOT build from the
@@ -77,11 +77,11 @@
 - **Git-protocol pushes — v0.2 helper+wrapper slice (partial, not
   full interposition).** A `git push --force` or `git push :branch`
   over HTTPS never becomes a REST call the proxy can inspect, so
-  v0.2 adds the honest slice in `keyholder/git.py` plus
+  v0.2 adds the honest slice in `sealvra/git.py` plus
   `scripts/git-credential-helper`, and NOT a git smart-HTTP proxy:
   the helper speaks git's credential protocol (`get`/`store`/`erase`)
   and on `get` returns a session-scoped credential — username
-  `keyholder`, password = the proxy session token bound to one key,
+  `sealvra`, password = the proxy session token bound to one key,
   one repo scope (host + owner/repo), and TTL-capped — never the
   real key; `store`/`erase` are deliberate no-ops so a session
   credential is never persisted into a credential store. The
@@ -98,13 +98,13 @@
   decision write means git is not run). **What still bypasses it,
   stated plainly: a git client run directly with standing
   credentials outside the wrapper/helper is NOT logged and NOT
-  gated** — `keyholder doctor` must flag standing git credentials
+  gated** — `sealvra doctor` must flag standing git credentials
   (it already inventories `.git-credentials` and
   `.config/gh/hosts.yml`); per-path restriction inside a push is
   not enforceable from refspecs (use API-only sessions for
   path-bound templates); helper `get` calls outside the wrapper
   are scope/expiry-checked but not individually audit-logged; and
-  the helper credential authenticates only against a Keyholder git
+  the helper credential authenticates only against a Sealvra git
   proxy (not yet built) or a loopback fake remote that validates
   session tokens — sent directly to github.com it would simply
   fail authentication, which is why the helper refuses any host
@@ -124,6 +124,51 @@
   protection-rule removal, fake-green-CI via checks/statuses write,
   workflow-disable kills, and fork-PR workflow-run approval (which
   hands repository secrets to unreviewed code) are classified.
+
+### Where the adapter's hard denials are actually enforced (v0.2, 2026-10-29)
+
+`sealvra/github.py::classify` carries first-party refusals the signed
+packs do not model — `GH-SECRET-01` denies the whole secrets family
+("secrets never proxied (all families)"). Until v0.2 Phase 4 that module
+was advisory in the proxy path: the daemon's composition root asked the
+**pack** and nothing else, so a `read`-class session could
+`GET /repos/{owner}/{repo}/actions/secrets/{name}` and be allowed,
+because the pack models `GET /repos/**` as a level-1 read and has no GET
+rule for that family.
+
+The seam is now wired, and it is deliberately narrow. In
+`sealvra/runtime.py::_deny_floor`, applied to every decision the pack
+returns for a GitHub session:
+
+- The pack stays the policy source (CONTRACT §6 "Policy layering"). The
+  floor can only **add** a refusal. A pack `None`, deny, or level ≥ 4 is
+  returned untouched; a level-3 decision is left to the approver; only a
+  pack-**allowed** call that `classify` puts at level 4 becomes a deny,
+  and it carries the adapter's rule id so the audit row names the rule
+  that fired. The agent still sees a generic denial.
+- Path and method rules are what is enforced here. `classify` also takes
+  a parsed body and a repo allowlist; this seam receives raw bytes, so
+  body-dependent rules are not reachable from it and the pack remains
+  the only source for anything body-shaped.
+- It is GitHub-only. There is no equivalent floor for Gemini, so for
+  that provider the pack is the whole answer — stated as an asymmetry,
+  not a symmetry claimed. The asymmetry is a fact about the adapters,
+  not a shortcut: only GitHub has a hard denial the pack fails to model
+  (`GH-SECRET-01`). No Gemini floor is to be invented until a Gemini
+  adapter hard denial exists to enforce; adding one now would be a
+  second policy source with nothing legitimate for it to catch.
+
+Closed by this: `tests/test_e2e.py::RealPathTests::test_07`. Verified
+load-bearing by mutation (disable the floor, the test fails with the
+mock's 200 — see `BUILD-AND-TEST-REPORT.md` §"Layer B closed — the two
+fixes").
+
+**Owner decision (2026-10-29): the floor stays in `sealvra/runtime.py`.**
+These rules are NOT moving into a re-signed pack. The pack signing key
+`pk-a584d783bdcd5feb` is rotate-only — its private half was destroyed —
+so re-signing the GitHub pack would change `content_sha256` and break
+the trust root for no security gain. The layering the decision rests on
+is written into CONTRACT §6; this page is the adapter-facing view of it.
 
 ## Gemini adapter (corrected — rewritten, not copied from R06)
 

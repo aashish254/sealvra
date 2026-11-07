@@ -1,6 +1,6 @@
-# Keyholder v0.2 on Windows — honest status (W16)
+# Sealvra v0.2 on Windows — honest status (W16)
 
-Working title Keyholder. No standalone Windows executable is built or
+No standalone Windows executable is built or
 claimed in v0.2. The distribution is the Python zipapp plus PowerShell
 install/uninstall scripts (see "How a Windows user runs v0.2" below).
 Anything in this document that has not actually run on Windows is
@@ -39,15 +39,15 @@ labelled NOT-RUN, never PASSED (CONTRACT §11).
   kill, verifier-helper paths, installer/uninstaller static
   correctness, zipapp host run, NSIS spec-only). PowerShell
   *parsing* is checked by `windows_check.py` only when `pwsh` is
-  available; on this Linux VM `pwsh` is unavailable, so parsing is
+  available; `pwsh` is unavailable on the checking host, so parsing is
   recorded as NOT-RUN, never claimed.
 
 ## The honest Windows statement (v3 §1N, f14)
 
 On macOS, stored keys are additionally gated by per-application
 Keychain ACLs. On Windows, stored keys are readable by any process
-running as your user. Keyholder's approval tiers, Hello gestures, and
-kill switch control what Keyholder itself does with your keys; they do
+running as your user. Sealvra's approval tiers, Hello gestures, and
+kill switch control what Sealvra itself does with your keys; they do
 not stop another program running as you from reading them directly
 from Credential Manager or the vault file.
 
@@ -55,8 +55,8 @@ Concretely, Windows storage is **S2 (user-scoped)**: DPAPI's boundary
 is the user account, not the application. Any same-user process can
 call `CryptUnprotectData` with no prompt, no permission check, and no
 per-app isolation, and `CredRead` has no per-app ACL. A Hello step-up
-gates Keyholder-mediated use only — it does not "address" DPAPI. The
-tiers (T1/T2/T3/T0) measure Keyholder's gates, not platform storage.
+gates Sealvra-mediated use only — it does not "address" DPAPI. The
+tiers (T1/T2/T3/T0) measure Sealvra's gates, not platform storage.
 Per-record wrapping keys are broker-side accounting and audit
 granularity on Windows, not OS-enforced gates. Same-user malware / a
 compromised OS account is out of scope by design. Opaque Credential
@@ -66,14 +66,14 @@ trivially.
 
 ## What was checked here (Linux host, 2026-10-28)
 
-Run `python scripts/windows_check.py` from the build root. On this
-Linux VM it checks, without Windows (exit 0 in v0.2):
+Run `python scripts/windows_check.py` from the build root. On the checking host (any platform) it
+checks, without Windows (exit 0 in v0.2):
 
-- Every Python file under `keyholder/`, `scripts/`, `tests/` compiles.
+- Every Python file under `sealvra/`, `scripts/`, `tests/` compiles.
 - No POSIX-only import or process-group API (`pwd`, `grp`, `fcntl`,
   `os.fork`, `os.killpg`, `os.getpgid`, `os.setsid`, `os.setpgid`) is
   used outside code gated to a non-Windows platform.
-- `keyholder/platform.py` Windows branches branch on
+- `sealvra/platform.py` Windows branches branch on
   `sys.platform == 'win32'`; storage is S2 with same-user direct read;
   Hello biometric and Hello PIN are distinct mechanisms (PIN is
   `T1-pin`, harvestable by a lookalike dialog, never bare T1); the
@@ -83,7 +83,7 @@ Linux VM it checks, without Windows (exit 0 in v0.2):
   biometric = T1 with badge, remote PIN at most T2, including
   Guard + PIN); TPM hardware/virtual/absent and domain-joined
   status never change S2.
-- `keyholder/approval.py`'s Windows branch is DESIGN ONLY and
+- `sealvra/approval.py`'s Windows branch is DESIGN ONLY and
   requires the verifier helper; broker-window clicks may present or
   deny a destructive call, never approve it.
 - The daemon falls back to a loopback TCP listener on `127.0.0.1`
@@ -101,7 +101,7 @@ Linux VM it checks, without Windows (exit 0 in v0.2):
   with CredUI + LogonUser, mlocked, zeroed; password-in-memory
   warning without it; Hello PIN never boolean-only; Guard + PIN =
   T2), an absence check proving no native DPAPI/CredUI binding
-  (windll / Win32 API call site) exists in `keyholder/` — so nothing
+  (windll / Win32 API call site) exists in `sealvra/` — so nothing
   pretends to call the real APIs — and a MOCKED boolean-only
   boundary simulation (fake helper returns bool; broker receives
   bool only, never the password string).
@@ -112,9 +112,9 @@ Linux VM it checks, without Windows (exit 0 in v0.2):
   deletion verified after removal), launcher resolving the zipapp
   relative to itself, Python-version handling, no network cmdlets,
   no admin elevation. PowerShell parsing itself is NOT-RUN here:
-  `pwsh` is unavailable on this Linux VM, and `windows_check.py`
+  `pwsh` is unavailable on the checking host, and `windows_check.py`
   reports W16-ps-parse as NOT-RUN in that case.
-- W17 zipapp host run: `dist/keyholder.pyz` is a valid zip with
+- W17 zipapp host run: `dist/sealvra.pyz` is a valid zip with
   `__main__.py` and `--help` exits 0 under this Linux host's
   CPython. That proves the zipapp artifact, not Windows Python.
 - W18 NSIS spec-only: no `.nsi` file and no installer binary exist.
@@ -123,7 +123,7 @@ These are gate-logic, static, and mocked checks run on Linux. They
 prove the logic, not native Windows behaviour. Every mocked check
 says MOCKED in its detail line.
 
-## Remaining gaps (not blockers for the Linux-host check, open for a real Windows run)
+## Remaining gaps (not blockers for the checking-host run, open for a real Windows run)
 
 - Windows supervisor process-tree / job-object kill: `terminate()`
   kills the direct worker only on Windows; worker children are not
@@ -159,9 +159,9 @@ says MOCKED in its detail line.
 - Remote Credential Guard on a domain-joined machine.
 - Running `scripts/install.ps1` or `scripts/uninstall.ps1`.
 - PowerShell parsing of `install.ps1` / `uninstall.ps1` (`pwsh`
-  unavailable on this Linux VM; `windows_check.py` W16-ps-parse
+  unavailable on the checking host; `windows_check.py` W16-ps-parse
   is NOT-RUN here).
-- Running the zipapp under Windows Python (the Linux-host `--help`
+- Running the zipapp under Windows Python (the checking-host `--help`
   run in W17 is not evidence for Windows Python).
 - Windows supervisor process-tree / job-object kill for worker
   children, and Windows worker orphan self-termination.
@@ -179,7 +179,7 @@ says MOCKED in its detail line.
 - Remote-access coverage beyond RDP: `SM_REMOTESESSION` detects
   Microsoft RDP only. VNC, TeamViewer, AnyDesk, Parsec, SSH with X
   forwarding, and IPMI/KVM are NOT detected and look local to
-  Keyholder. Do not approve destructive actions while any
+  Sealvra. Do not approve destructive actions while any
   remote-access tool is running. Remote state is re-probed at every
   approval, not once at daemon start.
 
@@ -191,16 +191,16 @@ bundled in the zipapp; if they are missing, `install.ps1` warns and
 does not silently substitute anything.
 
 1. Build (on any machine): `python scripts/make_zipapp.py` produces
-   `dist/keyholder.pyz`. The file is a zipapp, not a standalone
+   `dist/sealvra.pyz`. The file is a zipapp, not a standalone
    executable — it needs Python on the target machine.
 2. Install (PowerShell, from the build root):
    `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`
-   This copies `keyholder.pyz` to `%LOCALAPPDATA%\Keyholder\` and
-   writes a launcher at `%LOCALAPPDATA%\Keyholder\bin\keyholder.cmd`.
-   Add that `bin` directory to `PATH`, then run `keyholder --help`.
+   This copies `sealvra.pyz` to `%LOCALAPPDATA%\Sealvra\` and
+   writes a launcher at `%LOCALAPPDATA%\Sealvra\bin\sealvra.cmd`.
+   Add that `bin` directory to `PATH`, then run `sealvra --help`.
    The vault directory defaults to
-   `%LOCALAPPDATA%\Keyholder\vault` (or `%KEYHOLDER_HOME%` when set).
-3. Run: `keyholder daemon start`, then the usual CLI surface
+   `%LOCALAPPDATA%\Sealvra\vault` (or `%SEALVRA_HOME%` when set).
+3. Run: `sealvra daemon start`, then the usual CLI surface
    (`keys add|list|show|delete|rotate`, `sessions list|create|kill`,
    `audit verify|export`, `doctor`, `prove-isolation`). There is no
    `keys reveal`, no `--show-token`, no `sessions approve`, and no
@@ -218,8 +218,8 @@ build outside WSL cannot see into it.
 
 ### Program and data are separate
 
-- Program: `%LOCALAPPDATA%\Keyholder\keyholder.pyz` plus
-  `%LOCALAPPDATA%\Keyholder\bin\keyholder.cmd`.
+- Program: `%LOCALAPPDATA%\Sealvra\sealvra.pyz` plus
+  `%LOCALAPPDATA%\Sealvra\bin\sealvra.cmd`.
 - Data: the vault directory (default above). Reinstalling replaces
   the program files only; if the vault directory already exists its
   contents are left exactly as they are, and data carries over
@@ -261,8 +261,10 @@ back up.
 
 ## Exact post-push CI steps that will prove Windows
 
-These steps have not run anywhere yet: no repository exists, so no
-CI run is claimed. When a repository exists, the Windows job in
+These steps have not run anywhere yet: the repository is public but
+`ci.yml` is not on its pushed branch (only `README.md` is, and
+`gh run list` returns zero runs), so no CI run is claimed. Once the
+workflow is pushed, the Windows job in
 `.github/workflows/ci.yml` must, in order:
 
 1. Check out, set up Python 3.12, install `requirements.txt`.
@@ -275,12 +277,12 @@ CI run is claimed. When a repository exists, the Windows job in
 4. Parse-check both PowerShell scripts explicitly with
    `pwsh -NoProfile` (`Parser::ParseFile`, zero errors; run
    PSScriptAnalyzer too if it is available) — this is the check
-   that cannot run on the Linux VM and must not be skipped.
+   that cannot run without PowerShell on the checking host and must not be skipped.
 5. Build the zipapp (`python scripts/make_zipapp.py`) and record its
    SHA-256, so later evidence binds to that exact artifact.
-6. On the Windows runner itself (this is the part no Linux-host
+6. On the Windows runner itself (this is the part no checking-host
    check can replace): run `install.ps1` into a temporary install
-   root and vault directory, run `keyholder --help` and `keyholder
+   root and vault directory, run `sealvra --help` and `sealvra
    doctor` from the installed launcher, run `uninstall.ps1` with
    default options and verify the vault directory is untouched, then
    run the wipe path in a throwaway directory and verify the receipt

@@ -1,4 +1,4 @@
-"""Adversarial suite for Keyholder v0.1 (W14) — stop-ship enforcement.
+"""Adversarial suite for Sealvra v0.1 (W14) — stop-ship enforcement.
 
 Stop-ship list (manager task, CONTRACT §11, v3 §1Q N-Q2/N-Q4):
   S1 any failing adversarial test blocks release.
@@ -18,15 +18,19 @@ How to read results (do NOT collapse these):
   * FAIL is a finding, reported by name, never softened.
 
 Platform NOT-RUN: macOS Keychain / Windows Hello / DPAPI tests are
-marked NOT-RUN with the reason on this Linux VM, never passed.
+marked NOT-RUN with the host platform named in the reason, never
+passed. The reason must not hardcode a platform: these tests have run
+on Linux and, in v0.2 Phase 3, on macOS, and a skip reason that
+asserts the wrong host is itself a false claim.
 
 Stdlib only. Fake TEST-ONLY secrets only. Loopback only.
 Run:  python3 -m unittest tests.test_adversarial -v
-  (from ~/workspace/keyholder-build, or: python3 -m unittest discover -s tests)
+  (from ~/workspace/sealvra-build, or: python3 -m unittest discover -s tests)
 """
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import hashlib
 import hmac
@@ -34,6 +38,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import socketserver
 import sys
@@ -400,7 +405,7 @@ class TestForbiddenSurfaceRealSource(unittest.TestCase):
         # docstrings that *state* the prohibition must not false-positive.
         files = real_source_files()
         if not files:
-            skip_not_run("keyholder/ package has no .py files yet")
+            skip_not_run("sealvra/ package has no .py files yet")
         hits = []
         for f in files:
             text = stripped_code_text(f)
@@ -412,7 +417,7 @@ class TestForbiddenSurfaceRealSource(unittest.TestCase):
     def test_no_silent_raw_key_fallback_in_real_source(self):
         files = real_source_files()
         if not files:
-            skip_not_run("keyholder/ package has no .py files yet")
+            skip_not_run("sealvra/ package has no .py files yet")
         hits = []
         for f in files:
             text = stripped_code_text(f)
@@ -424,8 +429,8 @@ class TestForbiddenSurfaceRealSource(unittest.TestCase):
     def test_env_var_raw_key_is_not_accepted_as_session_token(self):
         # S3: a config flag / env var naming a raw key must never become
         # a usable session token. The stub broker ignores env entirely.
-        os.environ["KEYHOLDER_RAW_KEY"] = FAKE_GITHUB
-        os.environ["KEYHOLDER_FALLBACK_TOKEN"] = FAKE_GITHUB
+        os.environ["SEALVRA_RAW_KEY"] = FAKE_GITHUB
+        os.environ["SEALVRA_FALLBACK_TOKEN"] = FAKE_GITHUB
         try:
             b, sid, token, pop = _broker_and_session()
             sig, ts = _pop_for(b, sid, token, pop)
@@ -433,8 +438,8 @@ class TestForbiddenSurfaceRealSource(unittest.TestCase):
                 sid, FAKE_GITHUB, sig, ts,
                 "GET", "api.github.com", "/repos/a/b", b""))
         finally:
-            os.environ.pop("KEYHOLDER_RAW_KEY", None)
-            os.environ.pop("KEYHOLDER_FALLBACK_TOKEN", None)
+            os.environ.pop("SEALVRA_RAW_KEY", None)
+            os.environ.pop("SEALVRA_FALLBACK_TOKEN", None)
 
 
 # ================================================================ H. audit (CONTRACT §8)
@@ -557,17 +562,20 @@ class TestSecretScanner(unittest.TestCase):
 class TestPlatformNotRun(unittest.TestCase):
     def test_macos_keychain_access_group_isolation(self):
         if sys.platform != "darwin":
-            skip_not_run("macOS Keychain access groups cannot run on this Linux VM")
+            skip_not_run("macOS Keychain access groups need darwin; "
+                         "this run's host platform is %s" % sys.platform)
         self.fail("macOS-only test reached on darwin without implementation")
 
     def test_windows_hello_approver(self):
         if sys.platform != "win32":
-            skip_not_run("Windows Hello approver cannot run on this Linux VM")
+            skip_not_run("Windows Hello approver needs win32; "
+                         "this run's host platform is %s" % sys.platform)
         self.fail("Windows-only test reached on win32 without implementation")
 
     def test_windows_dpapi_user_scope(self):
         if sys.platform != "win32":
-            skip_not_run("Windows DPAPI cannot run on this Linux VM")
+            skip_not_run("Windows DPAPI needs win32; "
+                         "this run's host platform is %s" % sys.platform)
         self.fail("Windows-only test reached on win32 without implementation")
 
 
@@ -586,8 +594,8 @@ class TestIntegrationProbes(unittest.TestCase):
 
     def test_real_broker_sibling_and_kill(self):
         broker_mod = self._real("broker")
-        from keyholder.broker import Broker
-        from keyholder.tokens import compute_pop, body_sha256_hex
+        from sealvra.broker import Broker
+        from sealvra.tokens import compute_pop, body_sha256_hex
         b = Broker()
         a = b.create_session(key_id="key-aaaaaaaaaaaaaaaa", provider="github",
                              session_class="destructive")
@@ -613,8 +621,8 @@ class TestIntegrationProbes(unittest.TestCase):
 
     def test_real_broker_pop_replay_with_nonce_rejected(self):
         self._real("broker")
-        from keyholder.broker import Broker
-        from keyholder.tokens import compute_pop, body_sha256_hex
+        from sealvra.broker import Broker
+        from sealvra.tokens import compute_pop, body_sha256_hex
         b = Broker()
         a = b.create_session(key_id="key-aaaaaaaaaaaaaaaa", provider="github",
                              session_class="destructive")
@@ -642,8 +650,8 @@ class TestIntegrationProbes(unittest.TestCase):
         # nonce presence, so a proxy that omits the nonce header
         # re-opens replay. Reported as a finding, not softened.
         self._real("broker")
-        from keyholder.broker import Broker
-        from keyholder.tokens import compute_pop, body_sha256_hex
+        from sealvra.broker import Broker
+        from sealvra.tokens import compute_pop, body_sha256_hex
         b = Broker()
         a = b.create_session(key_id="key-aaaaaaaaaaaaaaaa", provider="github",
                              session_class="destructive")
@@ -666,22 +674,22 @@ class TestIntegrationProbes(unittest.TestCase):
 
     def test_real_approval_x11_and_dashboard_cannot_approve(self):
         appr_mod = self._real("approval")
-        from keyholder.approval import (broker_window_may_approve,
+        from sealvra.approval import (broker_window_may_approve,
                                         cli_or_dashboard_may_approve)
         self.assertFalse(broker_window_may_approve(is_destructive=True,
                                                    tier=None))
         self.assertFalse(cli_or_dashboard_may_approve())
 
     def test_real_policy_module_imports(self):
-        p = BUILD_ROOT / "keyholder" / "policy.py"
+        p = BUILD_ROOT / "sealvra" / "policy.py"
         if not p.exists():
-            skip_not_run("keyholder/policy.py absent")
+            skip_not_run("sealvra/policy.py absent")
         try:
             require_real("policy")
         except NotRun as e:
             # File exists but will not import: that is a failure of
             # shipped code, not a reason to skip.
-            self.fail(f"keyholder/policy.py exists but does not import: {e}")
+            self.fail(f"sealvra/policy.py exists but does not import: {e}")
 
     def test_real_proxy_connect_and_credential_response(self):
         self._real("proxy")
@@ -754,7 +762,7 @@ def _require_crypto():
     except ImportError:
         raise unittest.SkipTest(
             "NOT-RUN: cryptography package absent from this interpreter "
-            "(run under ~/workspace/keyholder-build/.venv/bin/python)")
+            "(run under ~/workspace/sealvra-build/.venv/bin/python)")
 
 
 def _require_real_module(name):
@@ -863,8 +871,8 @@ class _RealProxyHarness:
         _require_real_module("broker")
         _require_real_module("proxy")
         _require_real_module("tokens")
-        from keyholder.broker import Broker
-        from keyholder.proxy import ProxyConfig, ProxyEngine
+        from sealvra.broker import Broker
+        from sealvra.proxy import ProxyConfig, ProxyEngine
         self.broker = Broker()
         self.keys = {}
         self.pop_keys = {}
@@ -876,14 +884,14 @@ class _RealProxyHarness:
         self.audit = None
         if use_audit_log:
             _require_real_module("audit")
-            from keyholder.audit import AuditLog, pseudonym
+            from sealvra.audit import AuditLog, pseudonym
             self._pseudonym = pseudonym
             self.audit = AuditLog(Path(tmpdir), self.AUDIT_SECRET)
         if decide_mode == "pack":
             _require_real_module("policy")
             _require_real_module("packs")
-            from keyholder.packs import load_pack
-            from keyholder.policy import PolicyEngine
+            from sealvra.packs import load_pack
+            from sealvra.policy import PolicyEngine
             try:
                 gh = PolicyEngine(load_pack(BUILD_ROOT / "packs" / "github.json"))
                 gm = PolicyEngine(load_pack(BUILD_ROOT / "packs" / "gemini.json"))
@@ -958,16 +966,16 @@ class _RealProxyHarness:
 
     def call(self, created, method, path, body=b"", token=None, pop_key=None,
              headers_extra=None):
-        from keyholder.tokens import compute_pop
+        from sealvra.tokens import compute_pop
         base = self.upstream_base
         port = base.rsplit(":", 1)[1]
         host = "127.0.0.1:%s" % port
         popk = created.pop_key if pop_key is None else pop_key
         ts = int(time.time())
         pop = compute_pop(popk, method, host, path, body, ts)
-        headers = {"x-keyholder-session": created.token if token is None else token,
-                   "x-keyholder-pop": pop,
-                   "x-keyholder-timestamp": str(ts)}
+        headers = {"x-sealvra-session": created.token if token is None else token,
+                   "x-sealvra-pop": pop,
+                   "x-sealvra-timestamp": str(ts)}
         if body:
             headers["content-type"] = "application/json"
         if headers_extra:
@@ -1021,6 +1029,38 @@ class TestTierBControlPlaneReal(unittest.TestCase):
         finally:
             sock.close()
 
+    @contextlib.contextmanager
+    def _isolated_test_vault(self, secret: str, provider: str, label: str):
+        """One real TEST-ONLY compartment in a throwaway vault.
+
+        v0.2 Phase 1 wired the daemon's sessions.create to the vault gate
+        (``Daemon._require_key_creatable``): a key_id no compartment holds
+        is refused with KH-1002, so this class mints against a compartment
+        that genuinely exists instead of a synthetic id. The env stays
+        patched for the whole body because the daemon serves the socket on
+        another thread of this process and resolves the store per call.
+        """
+        from sealvra import vault as vault_module
+        tmp = Path(tempfile.mkdtemp(prefix="kh-adv-vault-"))
+        key_file = tmp / "wrapping.hex"
+        key_file.write_text("22" * 32, encoding="utf-8")
+        os.chmod(key_file, 0o600)
+        names = (vault_module.VAULT_DIR_ENV, vault_module.TEST_MODE_ENV,
+                 vault_module.TEST_WRAPPING_KEY_FILE_ENV)
+        saved = {name: os.environ.get(name) for name in names}
+        os.environ[names[0]] = str(tmp / "vault")
+        os.environ[names[1]] = "1"
+        os.environ[names[2]] = str(key_file)
+        try:
+            yield vault_module.add_key(provider, label, secret, False).key_id
+        finally:
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_same_uid_socket_can_read_status_but_gets_no_secret(self):
         """FINDING (documents gap, Tier B): on Linux the daemon socket
         does NOT separate same-user processes (CONTRACT §10/§13.1).
@@ -1029,7 +1069,7 @@ class TestTierBControlPlaneReal(unittest.TestCase):
         no token, PoP key, or real key. The security outcome is the
         second half: status is metadata only."""
         _require_real_module("daemon")
-        from keyholder.daemon import Daemon
+        from sealvra.daemon import Daemon
         daemon = Daemon()
         try:
             daemon.start()
@@ -1069,7 +1109,7 @@ class TestTierBControlPlaneReal(unittest.TestCase):
         Tier B minting consequence of sessions.create is tested
         separately below.)"""
         _require_real_module("daemon")
-        from keyholder.daemon import Daemon
+        from sealvra.daemon import Daemon
         daemon = Daemon()
         try:
             daemon.start()
@@ -1106,49 +1146,62 @@ class TestTierBControlPlaneReal(unittest.TestCase):
         also proves: the attacker learns no raw key and no pre-existing
         token/PoP -- only a new token for a session it minted itself.
         Same-user separation is out of scope by design (CONTRACT §10);
-        this must never be cited as Tier B separation. (Proxy key
-        injection for the minted session is NOT claimed here: this
-        daemon test has no vault-backed proxy wired in.)"""
+        this must never be cited as Tier B separation.
+
+        v0.2 Phase 1 narrowed the gap it can demonstrate, and this test
+        says so instead of pretending otherwise: sessions.create now
+        passes the vault gate, so "known key_id" means a key_id that is
+        a stored, verified compartment (a synthetic id is refused with
+        KH-1002 -- proved by
+        test_daemon_ipc.DaemonIPCTestCase.test_sessions_create_refuses_a
+        _key_the_vault_does_not_hold). The attacker here therefore mints
+        against a compartment that really holds a TEST-ONLY fake key,
+        which is the stronger case: the session it obtains is bound to
+        live storage, not to an id the daemon never checks."""
         _require_real_module("daemon")
-        from keyholder.daemon import Daemon
-        daemon = Daemon()
-        try:
-            daemon.start()
-            victim = daemon.create_session(key_id="key-aaaaaaaaaaaaaaaa",
-                                           provider="github",
-                                           session_class="read_public")
-            # Defence: second live session for the same key is refused.
-            blocked = self._socket_cmd(
-                daemon, "sessions.create",
-                {"key_id": "key-aaaaaaaaaaaaaaaa", "provider": "github",
-                 "session_class": "read_public"})
-            self.assertFalse(blocked.get("ok"), blocked)
-            # Attacker kills the victim session (kill needs no auth),
-            # then mints for the now-known key_id -- no approval gate.
-            killed = self._socket_cmd(
-                daemon, "sessions.kill",
-                {"session_id": victim.session.session_id})
-            self.assertTrue(killed.get("ok"), killed)
-            reply = self._socket_cmd(
-                daemon, "sessions.create",
-                {"key_id": "key-aaaaaaaaaaaaaaaa", "provider": "github",
-                 "session_class": "read_public"})
-            self.assertTrue(reply.get("ok"), reply)
-            result = reply.get("result") or {}
-            minted_token = result.get("token", "")
-            self.assertTrue(minted_token.startswith("kh_sess_"))
-            self.assertNotEqual(minted_token, victim.token)
-            self.assertNotIn(FAKE_GITHUB, json.dumps(reply))
-            self.assertNotIn(victim.pop_key.hex(), json.dumps(reply))
-            # The minted token is live: the takeover is real, not a
-            # paper reply.
-            self.assertIsNotNone(daemon.broker.validate_token(minted_token))
-            self.assertIsNone(daemon.broker.validate_token(victim.token))
-        finally:
+        from sealvra.daemon import Daemon
+        with self._isolated_test_vault(FAKE_GITHUB, "github",
+                                       "adv-tierb-victim") as key_id:
+            daemon = Daemon()
             try:
-                daemon.stop()
-            except Exception:
-                pass
+                daemon.start()
+                victim = daemon.create_session(key_id=key_id,
+                                               provider="github",
+                                               session_class="read_public")
+                # Defence: second live session for the same key is refused.
+                blocked = self._socket_cmd(
+                    daemon, "sessions.create",
+                    {"key_id": key_id, "provider": "github",
+                     "session_class": "read_public"})
+                self.assertFalse(blocked.get("ok"), blocked)
+                self.assertEqual((blocked.get("error") or {}).get("code"),
+                                 "KH-2001", blocked)
+                # Attacker kills the victim session (kill needs no auth),
+                # then mints for the now-known key_id -- no approval gate.
+                killed = self._socket_cmd(
+                    daemon, "sessions.kill",
+                    {"session_id": victim.session.session_id})
+                self.assertTrue(killed.get("ok"), killed)
+                reply = self._socket_cmd(
+                    daemon, "sessions.create",
+                    {"key_id": key_id, "provider": "github",
+                     "session_class": "read_public"})
+                self.assertTrue(reply.get("ok"), reply)
+                result = reply.get("result") or {}
+                minted_token = result.get("token", "")
+                self.assertTrue(minted_token.startswith("kh_sess_"))
+                self.assertNotEqual(minted_token, victim.token)
+                self.assertNotIn(FAKE_GITHUB, json.dumps(reply))
+                self.assertNotIn(victim.pop_key.hex(), json.dumps(reply))
+                # The minted token is live: the takeover is real, not a
+                # paper reply.
+                self.assertIsNotNone(daemon.broker.validate_token(minted_token))
+                self.assertIsNone(daemon.broker.validate_token(victim.token))
+            finally:
+                try:
+                    daemon.stop()
+                except Exception:
+                    pass
 
     def test_socket_kill_needs_no_auth_but_discloses_no_token(self):
         """Kill needs no auth by design (CONTRACT §8): a same-UID
@@ -1156,7 +1209,7 @@ class TestTierBControlPlaneReal(unittest.TestCase):
         that the kill receipt discloses no token/PoP/key, and the
         killed token is dead afterwards (not reusable, not revealed)."""
         _require_real_module("daemon")
-        from keyholder.daemon import Daemon
+        from sealvra.daemon import Daemon
         daemon = Daemon()
         try:
             daemon.start()
@@ -1178,7 +1231,7 @@ class TestTierBControlPlaneReal(unittest.TestCase):
 
     def test_daemon_socket_dir_is_private_and_holds_no_session_files(self):
         _require_real_module("daemon")
-        from keyholder.daemon import Daemon
+        from sealvra.daemon import Daemon
         daemon = Daemon()
         try:
             daemon.start()
@@ -1204,7 +1257,7 @@ class TestTierBControlPlaneReal(unittest.TestCase):
 
     def test_daemon_stop_kills_sessions_no_resurrection(self):
         _require_real_module("daemon")
-        from keyholder.daemon import Daemon
+        from sealvra.daemon import Daemon
         daemon = Daemon()
         daemon.start()
         created = daemon.create_session(key_id="key-aaaaaaaaaaaaaaaa",
@@ -1218,7 +1271,7 @@ class TestTierBControlPlaneReal(unittest.TestCase):
 
     def test_cli_has_no_approve_reveal_extend_or_token_commands(self):
         _require_real_module("cli")
-        from keyholder.cli import main
+        from sealvra.cli import main
         # The CLI's parser raises _UsageError for invalid subcommands,
         # which main() maps to KH-2001, exit code 1 (CONTRACT §9:
         # KH-2001 invalid input/usage = 1). 1 here means "refused",
@@ -1230,20 +1283,20 @@ class TestTierBControlPlaneReal(unittest.TestCase):
 
     def test_env_var_cannot_become_real_session_token(self):
         _require_real_module("broker")
-        from keyholder.broker import Broker
-        os.environ["KEYHOLDER_RAW_KEY"] = FAKE_GITHUB
-        os.environ["KEYHOLDER_SESSION_TOKEN"] = FAKE_GITHUB
+        from sealvra.broker import Broker
+        os.environ["SEALVRA_RAW_KEY"] = FAKE_GITHUB
+        os.environ["SEALVRA_SESSION_TOKEN"] = FAKE_GITHUB
         try:
             broker = Broker()
             created = broker.create_session(key_id="key-aaaaaaaaaaaaaaaa",
                                             provider="github",
                                             session_class="read_public")
             self.assertIsNone(broker.validate_token(FAKE_GITHUB))
-            self.assertIsNone(broker.validate_token(os.environ["KEYHOLDER_RAW_KEY"]))
+            self.assertIsNone(broker.validate_token(os.environ["SEALVRA_RAW_KEY"]))
             self.assertNotEqual(created.token, FAKE_GITHUB)
         finally:
-            os.environ.pop("KEYHOLDER_RAW_KEY", None)
-            os.environ.pop("KEYHOLDER_SESSION_TOKEN", None)
+            os.environ.pop("SEALVRA_RAW_KEY", None)
+            os.environ.pop("SEALVRA_SESSION_TOKEN", None)
 
 
 # ================================================================ M. approval forgery (real ApprovalBroker)
@@ -1262,7 +1315,7 @@ def _approval_broker_and_decision(is_destructive=True, kind=None):
     runs without wall-clock dwell in tests."""
     _require_crypto()
     _require_real_module("approval")
-    from keyholder.approval import (ApprovalBroker, ApprovalKind, Approver,
+    from sealvra.approval import (ApprovalBroker, ApprovalKind, Approver,
                                     build_card, compute_request_hash)
     clock = _FakeClock()
     broker = ApprovalBroker(clock=clock, min_card_dwell_s=0)
@@ -1290,7 +1343,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
     def test_forged_origin_rejected(self):
         import copy
         broker, _, _, decision, _ = _approval_broker_and_decision()
-        from keyholder.approval import ApprovalError
+        from sealvra.approval import ApprovalError
         forged = copy.copy(decision)
         forged.origin = "cli"
         with self.assertRaises(ApprovalError):
@@ -1299,7 +1352,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
     def test_foreign_signer_signature_rejected(self):
         import copy
         broker, _, _, decision, _ = _approval_broker_and_decision()
-        from keyholder.approval import ApprovalError, ApproverSigner
+        from sealvra.approval import ApprovalError, ApproverSigner
         forged = copy.copy(decision)
         forged.signature = ApproverSigner().sign(decision.payload())
         with self.assertRaises(ApprovalError):
@@ -1308,7 +1361,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
     def test_tampered_request_hash_rejected(self):
         import copy
         broker, _, _, decision, _ = _approval_broker_and_decision()
-        from keyholder.approval import ApprovalError
+        from sealvra.approval import ApprovalError
         forged = copy.copy(decision)
         forged.request_hash = "0" * 64
         with self.assertRaises(ApprovalError):
@@ -1317,7 +1370,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
     def test_tampered_nonce_rejected(self):
         import copy
         broker, _, _, decision, _ = _approval_broker_and_decision()
-        from keyholder.approval import ApprovalError
+        from sealvra.approval import ApprovalError
         forged = copy.copy(decision)
         forged.nonce = "0" * 32
         with self.assertRaises(ApprovalError):
@@ -1325,7 +1378,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
 
     def test_replayed_decision_rejected(self):
         broker, _, _, decision, _ = _approval_broker_and_decision()
-        from keyholder.approval import ApprovalError, DenyReason
+        from sealvra.approval import ApprovalError, DenyReason
         self.assertTrue(broker.verify_and_consume(decision))
         with self.assertRaises(ApprovalError) as ctx:
             broker.verify_and_consume(decision)
@@ -1333,7 +1386,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
 
     def test_concurrent_replay_only_one_wins_real(self):
         broker, _, _, decision, _ = _approval_broker_and_decision()
-        from keyholder.approval import ApprovalError
+        from sealvra.approval import ApprovalError
         results, errors, barrier = [], [], threading.Barrier(16)
 
         def race():
@@ -1368,7 +1421,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
     def test_gesture_alone_authorises_nothing(self):
         _require_crypto()
         _require_real_module("approval")
-        from keyholder.approval import (ApprovalBroker, ApprovalKind,
+        from sealvra.approval import (ApprovalBroker, ApprovalKind,
                                         build_card, compute_request_hash)
         clock = _FakeClock()
         broker = ApprovalBroker(clock=clock, min_card_dwell_s=0)
@@ -1398,7 +1451,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
     def test_confirm_without_gesture_and_gesture_without_continue_rejected(self):
         _require_crypto()
         _require_real_module("approval")
-        from keyholder.approval import (ApprovalBroker, ApprovalKind, WrongOrder,
+        from sealvra.approval import (ApprovalBroker, ApprovalKind, WrongOrder,
                                         build_card, compute_request_hash)
         for stage in ("confirm-first", "gesture-first"):
             clock = _FakeClock()
@@ -1429,7 +1482,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
     def test_timeout_between_gesture_and_confirm_denies(self):
         _require_crypto()
         _require_real_module("approval")
-        from keyholder.approval import (ApprovalBroker, ApprovalKind, ApprovalError,
+        from sealvra.approval import (ApprovalBroker, ApprovalKind, ApprovalError,
                                         build_card, compute_request_hash)
         clock = _FakeClock()
         broker = ApprovalBroker(clock=clock, min_card_dwell_s=0)
@@ -1481,7 +1534,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
     def test_breakglass_alone_cannot_spend_destructive(self):
         _require_crypto()
         _require_real_module("approval")
-        from keyholder.approval import (ApprovalBroker, ApprovalKind, BreakGlass,
+        from sealvra.approval import (ApprovalBroker, ApprovalKind, BreakGlass,
                                         build_card, compute_request_hash)
         import time as _time
         clock = _FakeClock()
@@ -1521,7 +1574,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
     def test_x11_and_broker_window_destructive_refused_at_request(self):
         _require_crypto()
         _require_real_module("approval")
-        from keyholder.approval import (ApprovalBroker, ApprovalKind, ApprovalError,
+        from sealvra.approval import (ApprovalBroker, ApprovalKind, ApprovalError,
                                         PlatformTier, build_card,
                                         compute_request_hash)
         clock = _FakeClock()
@@ -1555,7 +1608,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
     def test_agent_words_never_in_headline(self):
         _require_crypto()
         _require_real_module("approval")
-        from keyholder.approval import ApprovalKind, build_card
+        from sealvra.approval import ApprovalKind, build_card
         agent_words = "delete repository and every secret right now"
         card = build_card(
             approval_id="appr-a", key_id="key-0123456789abcdef",
@@ -1570,7 +1623,7 @@ class TestApprovalForgeryReal(unittest.TestCase):
 
     def test_foreign_channel_helper_always_refuses(self):
         _require_real_module("approval")
-        from keyholder.approval import (OriginRefused, cli_or_dashboard_may_approve,
+        from sealvra.approval import (OriginRefused, cli_or_dashboard_may_approve,
                                         refuse_foreign_approval)
         for channel in ("cli", "dashboard", "agent", "session", "control"):
             with self.assertRaises(OriginRefused):
@@ -1604,16 +1657,16 @@ class TestPoPTheftReal(unittest.TestCase):
         self.assertEqual(self._srv.hits.get("/repos/o/r/contents/f.txt", 0), 0)
 
     def test_stolen_pop_replayed_through_proxy_fails_second_time(self):
-        from keyholder.tokens import compute_pop
+        from sealvra.tokens import compute_pop
         created = self.harness.new_session(session_class="read_account")
         port = self._base.rsplit(":", 1)[1]
         host = "127.0.0.1:%s" % port
         path = "/repos/o/r/contents/f.txt"
         ts = int(time.time())
         pop = compute_pop(created.pop_key, "GET", host, path, b"", ts)
-        headers = {"x-keyholder-session": created.token,
-                   "x-keyholder-pop": pop,
-                   "x-keyholder-timestamp": str(ts)}
+        headers = {"x-sealvra-session": created.token,
+                   "x-sealvra-pop": pop,
+                   "x-sealvra-timestamp": str(ts)}
         first = self.harness.proxy.handle("GET", self._base + path, headers, b"")
         self.assertEqual(first.status, 200)
         # Exact capture replay: same token, same PoP, same timestamp.
@@ -1625,8 +1678,8 @@ class TestPoPTheftReal(unittest.TestCase):
     def test_stolen_pop_rebound_to_other_path_body_host_fails(self):
         _require_real_module("broker")
         _require_real_module("tokens")
-        from keyholder.broker import Broker
-        from keyholder.tokens import body_sha256_hex, compute_pop
+        from sealvra.broker import Broker
+        from sealvra.tokens import body_sha256_hex, compute_pop
         broker = Broker()
         created = broker.create_session(key_id="key-aaaaaaaaaaaaaaaa",
                                         provider="github",
@@ -1657,8 +1710,8 @@ class TestPoPTheftReal(unittest.TestCase):
     def test_full_capture_replay_at_broker_fails(self):
         _require_real_module("broker")
         _require_real_module("tokens")
-        from keyholder.broker import Broker
-        from keyholder.tokens import body_sha256_hex, compute_pop
+        from sealvra.broker import Broker
+        from sealvra.tokens import body_sha256_hex, compute_pop
         broker = Broker()
         created = broker.create_session(key_id="key-aaaaaaaaaaaaaaaa",
                                         provider="github",
@@ -1698,8 +1751,8 @@ class TestPoPTheftReal(unittest.TestCase):
     def test_expired_and_idle_sessions_reject_pop(self):
         _require_real_module("broker")
         _require_real_module("tokens")
-        from keyholder.broker import Broker
-        from keyholder.tokens import body_sha256_hex, compute_pop
+        from sealvra.broker import Broker
+        from sealvra.tokens import body_sha256_hex, compute_pop
         broker = Broker()
         expired = broker.create_session(key_id="key-aaaaaaaaaaaaaaaa",
                                         provider="github",
@@ -1730,8 +1783,8 @@ class TestPoPTheftReal(unittest.TestCase):
     def test_pop_timestamp_outside_skew_fails(self):
         _require_real_module("broker")
         _require_real_module("tokens")
-        from keyholder.broker import Broker
-        from keyholder.tokens import body_sha256_hex, compute_pop
+        from sealvra.broker import Broker
+        from sealvra.tokens import body_sha256_hex, compute_pop
         broker = Broker()
         created = broker.create_session(key_id="key-aaaaaaaaaaaaaaaa",
                                         provider="github",
@@ -1787,12 +1840,12 @@ class TestConnectTunnelReal(unittest.TestCase):
         self._srv.server_close()
 
     def _connect_headers(self, created, host_part, port=None):
-        from keyholder.tokens import compute_pop
+        from sealvra.tokens import compute_pop
         ts = int(time.time())
         pop = compute_pop(created.pop_key, "CONNECT", host_part, "/", b"", ts)
-        return {"x-keyholder-session": created.token,
-                "x-keyholder-pop": pop,
-                "x-keyholder-timestamp": str(ts)}
+        return {"x-sealvra-session": created.token,
+                "x-sealvra-pop": pop,
+                "x-sealvra-timestamp": str(ts)}
 
     def test_connect_refused_for_absolute_transport(self):
         created = self._harness.new_session(session_class="read_public",
@@ -1803,7 +1856,7 @@ class TestConnectTunnelReal(unittest.TestCase):
 
     def test_connect_refused_for_write_and_destructive_sessions(self):
         # Broker creation itself refuses connect_allowed for these classes.
-        from keyholder.broker import SessionCreateError
+        from sealvra.broker import SessionCreateError
         for cls in ("write", "destructive"):
             with self.assertRaises(SessionCreateError):
                 self._harness.broker.create_session(
@@ -1811,8 +1864,8 @@ class TestConnectTunnelReal(unittest.TestCase):
                     session_class=cls, transport="connect_allowed")
         # Defence in depth: even a session object carrying those classes
         # must be refused by authorize_connect itself.
-        from keyholder.proxy import ProxyEngine, ProxyConfig
-        from keyholder.types import Session
+        from sealvra.proxy import ProxyEngine, ProxyConfig
+        from sealvra.types import Session
         forged = Session(session_id="sess-forged", key_id="key-cccccccccccccccc",
                          provider="github", session_class="destructive",
                          transport="connect_allowed", created_at=time.time(),
@@ -1825,17 +1878,17 @@ class TestConnectTunnelReal(unittest.TestCase):
             pop_key_for=lambda sid: b"0" * 32,
             decide=None, approve=None, audit_decision=None,
             audit_outcome=None, key_for=lambda kid: None)
-        from keyholder.tokens import compute_pop
+        from sealvra.tokens import compute_pop
         ts = int(time.time())
         pop = compute_pop(b"0" * 32, "CONNECT", "127.0.0.1", "/", b"", ts)
         decision = engine.authorize_connect(
             "127.0.0.1:443",
-            {"x-keyholder-session": "kh_sess_forged",
-             "x-keyholder-pop": pop, "x-keyholder-timestamp": str(ts)})
+            {"x-sealvra-session": "kh_sess_forged",
+             "x-sealvra-pop": pop, "x-sealvra-timestamp": str(ts)})
         self.assertFalse(decision.allowed)
 
     def test_connect_denied_for_non_allowlisted_host_and_wrong_port(self):
-        from keyholder.proxy import ProxyConfig, ProxyEngine
+        from sealvra.proxy import ProxyConfig, ProxyEngine
         created = self._harness.new_session(session_class="read_public",
                                             transport="connect_allowed")
         engine = ProxyEngine(
@@ -1865,7 +1918,7 @@ class TestConnectTunnelReal(unittest.TestCase):
         authority = "127.0.0.1:%s" % port
         headers = self._connect_headers(created, "127.0.0.1")
         no_pop = dict(headers)
-        del no_pop["x-keyholder-pop"]
+        del no_pop["x-sealvra-pop"]
         self.assertFalse(self._harness.proxy.authorize_connect(authority, no_pop).allowed)
         self.assertTrue(self._harness.proxy.authorize_connect(authority, headers).allowed)
         self.assertFalse(self._harness.proxy.authorize_connect(authority, headers).allowed)
@@ -1917,7 +1970,7 @@ class TestConnectTunnelReal(unittest.TestCase):
         proxy audit contains NO decision entry for that tunnelled DELETE.
         The controls that remain are: tunnel only for read-class
         sessions, allowlisted hosts only, byte budget, and the label."""
-        from keyholder.proxy import make_server
+        from sealvra.proxy import make_server
         created = self._harness.new_session(session_class="read_public",
                                             transport="connect_allowed")
         recorded = []
@@ -1947,12 +2000,12 @@ class TestConnectTunnelReal(unittest.TestCase):
                 headers = self._connect_headers(created, "127.0.0.1")
                 req = ("CONNECT 127.0.0.1:%d HTTP/1.1\r\n"
                        "Host: 127.0.0.1:%d\r\n"
-                       "X-Keyholder-Session: %s\r\n"
-                       "X-Keyholder-Pop: %s\r\n"
-                       "X-Keyholder-Timestamp: %s\r\n\r\n"
-                       % (echo_port, echo_port, headers["x-keyholder-session"],
-                          headers["x-keyholder-pop"],
-                          headers["x-keyholder-timestamp"]))
+                       "X-Sealvra-Session: %s\r\n"
+                       "X-Sealvra-Pop: %s\r\n"
+                       "X-Sealvra-Timestamp: %s\r\n\r\n"
+                       % (echo_port, echo_port, headers["x-sealvra-session"],
+                          headers["x-sealvra-pop"],
+                          headers["x-sealvra-timestamp"]))
                 sock.sendall(req.encode())
                 head = b""
                 while b"\r\n\r\n" not in head:
@@ -2011,14 +2064,14 @@ class TestGraphQLFloodingReal(unittest.TestCase):
         of 1, so it is denied outright rather than approved as one
         mutation. Verified against the real classifier, not the stub."""
         _require_real_module("policy")
-        from keyholder.policy import count_mutations
+        from sealvra.policy import count_mutations
         doc = graphql_alias_document(50)
         self.assertEqual(count_graphql_alias_fields(doc), 50)
         self.assertEqual(count_mutations(doc), 50)
 
     def test_single_mutation_operation_needs_approval_never_outright_allow(self):
         _require_real_module("policy")
-        from keyholder.policy import evaluate_graphql_document
+        from sealvra.policy import evaluate_graphql_document
         # One mutation field: approval-gated (level 3), never allowed
         # outright.
         one = "mutation { a0: deleteRepo(input: {id: \"0\"}) { ok } }"
@@ -2034,7 +2087,7 @@ class TestGraphQLFloodingReal(unittest.TestCase):
 
     def test_batch_is_n_separate_decisions_none_allowed_without_approval(self):
         _require_real_module("policy")
-        from keyholder.policy import evaluate_graphql_body
+        from sealvra.policy import evaluate_graphql_body
         batch = [{"query": "mutation { deleteRepo(input: {id: \"%d\"}) { ok } }" % i}
                  for i in range(30)]
         decisions = evaluate_graphql_body(batch, session_class="write")
@@ -2053,7 +2106,7 @@ class TestGraphQLFloodingReal(unittest.TestCase):
 
     def test_introspection_subscription_defer_and_fragment_cycle_denied(self):
         _require_real_module("policy")
-        from keyholder.policy import evaluate_graphql_document
+        from sealvra.policy import evaluate_graphql_document
         docs = [
             "query { __schema { types { name } } }",
             "subscription { repoUpdated { id } }",
@@ -2068,7 +2121,7 @@ class TestGraphQLFloodingReal(unittest.TestCase):
 
     def test_mutation_word_inside_string_not_counted(self):
         _require_real_module("policy")
-        from keyholder.policy import count_mutations
+        from sealvra.policy import count_mutations
         doc = 'query { search(text: "mutation { fake }") { id } }'
         self.assertEqual(count_mutations(doc), 0)
 
@@ -2083,7 +2136,7 @@ class TestGraphQLFloodingReal(unittest.TestCase):
         GraphQL route must resolve variables before classification
         (policy docstring, v3 N-G6)."""
         _require_real_module("policy")
-        from keyholder.policy import evaluate_graphql_body
+        from sealvra.policy import evaluate_graphql_body
         body = {"query": "query Q($x: String) { f(a: $x) { id } }",
                 "variables": {"x": "mutation { deleteRepo(input: {id: \"1\"}) { ok } }"}}
         decisions = evaluate_graphql_body(body, session_class="read_public")

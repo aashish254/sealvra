@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from keyholder.gui import (  # noqa: E402
+from sealvra.gui import (  # noqa: E402
     AuditEntryView,
     DaemonIpcClient,
     DaemonIpcError,
@@ -36,6 +36,52 @@ from keyholder.gui import (  # noqa: E402
 
 FAKE_SECRET = "TEST-ONLY-gh_fake_secret_value_12345"
 FAKE_TOKEN = "TEST-ONLY-kh_sess_fake_token_67890"
+
+_DISPLAY = None
+
+
+def _display_available() -> bool:
+    """Whether a Tk window can be mapped, measured without leaving one open.
+
+    The obvious probe — ``tkinter.Tk()`` inside a try/except — is what put
+    empty dark windows titled "tk" on the desktop beside the running app. A
+    root is a real window, and the first one created claims
+    ``tkinter._default_root``, so an undestroyed probe window stays mapped for
+    the rest of the process and later dialogs parent onto it instead of onto
+    the app window. One root per process, withdrawn and destroyed here, keeps
+    the NOT-RUN honest without drawing anything.
+    """
+    global _DISPLAY
+    if _DISPLAY is None:
+        try:
+            import tkinter
+
+            root = tkinter.Tk()
+        except Exception:
+            _DISPLAY = False
+        else:
+            _DISPLAY = True
+            root.withdraw()
+            root.destroy()
+    return _DISPLAY
+
+
+def tearDownModule():
+    """A Tk root that outlives a test is a window on someone's desktop.
+
+    Destroying first, then failing, so one leak cannot leave litter behind for
+    every run that follows it.
+    """
+    try:
+        import tkinter
+    except Exception:
+        return
+    leaked = tkinter._default_root
+    if leaked is not None:
+        leaked.destroy()
+        raise AssertionError(
+            "a GUI test left its Tk root window open; the window stays "
+            "mapped until the process exits")
 
 
 class FakeSource(GuiDataSource):
@@ -144,7 +190,7 @@ class TestHeadlessImport(unittest.TestCase):
         # Importing already happened at module load; reaching here
         # without a window proves it. Also confirm no Tk root exists
         # merely from the import.
-        import keyholder.gui as gui
+        import sealvra.gui as gui
 
         self.assertFalse(hasattr(gui, "_open_window_at_import"))
         # No Tk instance can exist without create_window(); the
@@ -152,13 +198,9 @@ class TestHeadlessImport(unittest.TestCase):
         self.assertIsNone(getattr(gui, "root", None))
 
     def test_create_window_headless_raises_runtime_error_not_tclerror(self):
-        import keyholder.gui as gui
+        import sealvra.gui as gui
 
-        try:
-            import tkinter
-
-            tkinter.Tk()
-        except Exception:
+        if not _display_available():
             self.skipTest("NOT-RUN: no display available in this environment")
         # If a display IS available, create_window must succeed and
         # the window must be destroyed again (smoke path below covers it).
@@ -198,6 +240,45 @@ class TestPseudonymOnlyRendering(unittest.TestCase):
         line = render_key_list_line(self.vm.source.list_keys()[0])
         self.assertIn("a1b2c3d4e5f6", line)
         self.assertNotIn("aabbccdd", line)
+
+    def test_fingerprint_never_in_a_shared_table(self):
+        """The Keys/Sessions/Activity rows are one list every key shares.
+
+        ``cli.py:86-88`` allows the 12-hex fingerprint in the owning
+        key's detail view only, and a fingerprint is a key-derived
+        value: if a table ever carried it, the shared screen would leak
+        a per-key identifier the contract reserves for one pane. This
+        pins both halves -- the prefix IS in its own detail, and no
+        fragment of either fixture fingerprint is in any shared row.
+
+        ``key_list_lines()`` is deliberately not in the set below: no
+        widget in this window calls it (the Keys screen renders
+        ``key_rows``), and its own fingerprint behaviour is pinned by
+        ``test_fingerprint_truncated_to_12_in_list``.
+        """
+        shared = "\n".join(
+            [str(cell) for name in ("key_rows", "session_rows", "audit_rows")
+             for row in getattr(self.vm, name)() for cell in row[0]]
+            + self.vm.session_list_lines() + self.vm.audit_lines()
+            + [self.vm.status_text()])
+        for fragment in ("a1b2c3d4e5f6", "aabbccdd", "deadbeef0011",
+                         "22334455", "a1b2c3d4e5f6aabbccdd",
+                         "deadbeef001122334455"):
+            self.assertNotIn(fragment, shared)
+        # And the detail pane for each key does carry its own, so the
+        # screen is not simply losing the value.
+        self.assertIn("a1b2c3d4e5f6",
+                      self.vm.detail_for_key("key-aaaa1111bbbb2222"))
+        self.assertIn("deadbeef0011",
+                      self.vm.detail_for_key("key-cccc3333dddd4444"))
+
+    def test_key_detail_carries_the_reference_a_terminal_needs(self):
+        """The table shows a pseudonym; ``sealvra keys rotate`` takes the
+        key_id, so the detail pane must print it or the GUI would strand
+        the one command that clears a rotation warning."""
+        detail = self.vm.detail_for_key("key-aaaa1111bbbb2222")
+        self.assertIn("key-aaaa1111bbbb2222", detail)
+        self.assertIn("sealvra keys rotate", detail)
 
     def test_connect_session_labelled_host_only(self):
         lines = self.vm.session_list_lines()
@@ -256,7 +337,7 @@ class TestKillWiring(unittest.TestCase):
         self.assertFalse(hasattr(self.vm, "approve"))
         self.assertFalse(hasattr(self.vm, "approve_session"))
         with open(
-            os.path.join(os.path.dirname(__file__), "..", "keyholder", "gui.py")
+            os.path.join(os.path.dirname(__file__), "..", "sealvra", "gui.py")
         ) as _f:
             source = _f.read()
         # No approve button/menu label may exist in the window code.
@@ -265,7 +346,7 @@ class TestKillWiring(unittest.TestCase):
 
     def test_no_web_dashboard_in_module(self):
         with open(
-            os.path.join(os.path.dirname(__file__), "..", "keyholder", "gui.py")
+            os.path.join(os.path.dirname(__file__), "..", "sealvra", "gui.py")
         ) as _f:
             source = _f.read()
         for forbidden in ("http.server", "Flask", "fastapi", "socketserver"):
@@ -274,7 +355,7 @@ class TestKillWiring(unittest.TestCase):
 
 class TestWindowSmoke(unittest.TestCase):
     def test_window_creation_smoke(self):
-        import keyholder.gui as gui
+        import sealvra.gui as gui
 
         try:
             window = gui.create_window(FakeSource())
@@ -569,19 +650,19 @@ class TestDaemonIpcSource(unittest.TestCase):
 
     def test_env_discovery(self):
         self.assertEqual(
-            daemon_socket_from_env({"KEYHOLDER_DAEMON_SOCKET": "  /tmp/x.sock "}),
+            daemon_socket_from_env({"SEALVRA_DAEMON_SOCKET": "  /tmp/x.sock "}),
             "/tmp/x.sock")
         self.assertIsNone(daemon_socket_from_env({}))
-        self.assertIsNone(daemon_socket_from_env({"KEYHOLDER_DAEMON_SOCKET": "  "}))
+        self.assertIsNone(daemon_socket_from_env({"SEALVRA_DAEMON_SOCKET": "  "}))
 
     def test_default_source_from_env(self):
         import unittest.mock as mock
 
-        with mock.patch.dict(os.environ, {"KEYHOLDER_DAEMON_SOCKET": "/tmp/x.sock"}):
+        with mock.patch.dict(os.environ, {"SEALVRA_DAEMON_SOCKET": "/tmp/x.sock"}):
             self.assertIsInstance(create_default_source(), DaemonIpcSource)
         with mock.patch.dict(os.environ, {}, clear=True):
             # Clear only our var; other env content is irrelevant here.
-            os.environ.pop("KEYHOLDER_DAEMON_SOCKET", None)
+            os.environ.pop("SEALVRA_DAEMON_SOCKET", None)
             self.assertIsInstance(create_default_source(), EmptyDataSource)
 
 
@@ -634,13 +715,9 @@ class TestRefreshStates(unittest.TestCase):
 
 class TestWindowLiveWiringHeadless(unittest.TestCase):
     def test_main_headless_raises_kh3001(self):
-        import keyholder.gui as gui
+        import sealvra.gui as gui
 
-        try:
-            import tkinter
-
-            tkinter.Tk()
-        except Exception:
+        if not _display_available():
             with self.assertRaises(RuntimeError) as ctx:
                 gui.main(EmptyDataSource())
             self.assertIn("KH-3001", str(ctx.exception))
@@ -648,7 +725,7 @@ class TestWindowLiveWiringHeadless(unittest.TestCase):
         self.skipTest("NOT-RUN: a display is available; headless path not taken")
 
     def test_window_has_status_bar_and_auto_refresh_timer(self):
-        import keyholder.gui as gui
+        import sealvra.gui as gui
 
         try:
             window = gui.create_window(FakeSource(), refresh_interval_ms=5000)

@@ -5,7 +5,7 @@ concurrent replay, timeout-deny, approve-once semantics, destructive
 fresh-approval, X11 refusal, break-glass destructive exclusion, plus
 serialisation, card content rules, console grants, fatigue counters
 and enrolment posture. Run: python3 -m unittest tests.test_w08_approval -v
-from ~/workspace/keyholder-build (tests also insert the root on sys.path).
+from ~/workspace/sealvra-build (tests also insert the root on sys.path).
 """
 
 import os
@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from keyholder.approval import (  # noqa: E402
+from sealvra.approval import (  # noqa: E402
     APPROVER_CHANNEL,
     ApprovalBroker,
     ApprovalError,
@@ -321,7 +321,7 @@ class TestDestructiveFreshApproval(unittest.TestCase):
         # request always goes through the full two-step ceremony.
         import inspect
 
-        from keyholder import approval
+        from sealvra import approval
 
         self.assertNotIn("opt_out", inspect.signature(broker_request := approval.ApprovalBroker.request).parameters)
         self.assertNotIn("opt_out", inspect.signature(approval.ApprovalBroker.confirm).parameters)
@@ -607,7 +607,7 @@ class TestTwoStepUniversalW14(unittest.TestCase):
     def test_no_biometric_only_path_exists(self):
         import inspect
 
-        from keyholder import approval
+        from sealvra import approval
 
         for name in ("identical_scope_reapproval", "biometric_only_approve",
                      "approve_with_gesture_only"):
@@ -633,7 +633,7 @@ class TestCardToPromptRaceW14(unittest.TestCase):
         reason = os_prompt_reason(card)
         self.assertIn(card.pairing, card.headline())
         self.assertIn(card.pairing, reason)
-        self.assertIn("Keyholder", reason)
+        self.assertIn("Sealvra", reason)
 
     def test_pairing_word_platform_limits_honest(self):
         self.assertEqual(pairing_word_os_prompt_support("darwin"), "full")
@@ -876,7 +876,7 @@ class TestSerialisationAndFatigueSingleMachineW14(unittest.TestCase):
     def test_no_second_fatigue_resume_api(self):
         import inspect
 
-        from keyholder import approval
+        from sealvra import approval
 
         for name in ("resume_with_os_auth", "reenable_with_os_auth",
                      "resume_after_review", "os_auth_resume"):

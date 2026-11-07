@@ -1,4 +1,4 @@
-"""Entry point: ``python3 -m keyholder`` from the build root."""
+"""Entry point: ``python3 -m sealvra`` from the build root."""
 
 import sys
 

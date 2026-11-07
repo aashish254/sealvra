@@ -1,4 +1,4 @@
-"""Keyholder W12 — probe: expiring per-model/per-surface matrix.
+"""Sealvra W12 — probe: expiring per-model/per-surface matrix.
 
 What the probe IS (v3 N-K2, f10 §3):
 - A drift / misconfiguration detector. It proves that a canary-marked

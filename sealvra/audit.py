@@ -1,4 +1,4 @@
-"""Keyholder v0.1 — audit log (W09).
+"""Sealvra v0.1 — audit log (W09).
 
 Normative sources: CONTRACT.md §8 (event schema, chain, verify statuses,
 retention schedule, disk-full fail-closed) and v3 plan §1P (N-P1–N-P8;
@@ -237,7 +237,7 @@ writer, writes nothing, needs no audit secret (the chain hash is
 plain SHA-256 per CONTRACT §8; pseudonyms are never recomputed
 by verification), and never creates a log. ``AuditLog.verify()``
 is a thin wrapper over it, so the two cannot drift apart.
-``python3 -m keyholder.audit --root <dir> [--anchor <file>]``
+``python3 -m sealvra.audit --root <dir> [--anchor <file>]``
 runs that core from the command line and exits with the
 verification exit code. That is checkable and independent of
 writer state, but it is NOT yet the F-36 gate: writer and
@@ -812,13 +812,13 @@ def _bridge_seq(b: dict) -> int | None:
 def main(argv=None) -> int:
     """Standalone verifier CLI: no writer, no writes, no secret.
 
-    Usage: python3 -m keyholder.audit --root <state-dir> [--anchor <file>]
+    Usage: python3 -m sealvra.audit --root <state-dir> [--anchor <file>]
     Prints the status and exits with its exit code (0/2/3).
     """
     import argparse
     import sys
 
-    parser = argparse.ArgumentParser(description="Verify a Keyholder audit log (read-only).")
+    parser = argparse.ArgumentParser(description="Verify a Sealvra audit log (read-only).")
     parser.add_argument("--root", required=True, help="audit state root (contains genesis.json, anchors.jsonl, audit/)")
     parser.add_argument("--anchor", default=None, help="external anchor file to check against (default: <root>/anchors.jsonl)")
     args = parser.parse_args(argv)
@@ -2067,6 +2067,35 @@ class AuditLog:
                 out.append(v)
             w.writerow(out)
         return buf.getvalue()
+
+
+# --------------------------------------------------------- module surface
+# The CLI (``sealvra audit verify``) calls these module-level names, so
+# they are the composition-root seam for verification. They resolve the
+# audit root the same way the daemon does ($SEALVRA_AUDIT_ROOT, else
+# ~/.sealvra) and read-only-verify it: no AuditLog instance, no secret
+# needed, nothing created. Verification never requires the pseudonym
+# secret because the chain hash does not use it.
+
+AUDIT_ROOT_ENV = "SEALVRA_AUDIT_ROOT"
+
+
+def default_audit_root() -> Path:
+    raw = (os.environ.get(AUDIT_ROOT_ENV) or "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path.home() / ".sealvra"
+
+
+def verify(root=None) -> VerifyResult:
+    """Verify the audit chain under ``root`` (default audit root).
+
+    Returns a VerifyResult with status OK / UNANCHORED / TAMPERED /
+    MISSING-DIRECTORY and its CONTRACT section 8 exit code. Never
+    raises for a bad log and never writes anything.
+    """
+    directory = Path(root).expanduser() if root is not None else default_audit_root()
+    return verify_audit_directory(directory, directory / "anchors.jsonl")
 
 
 def rotate_audit_secret(old_secret: bytes, new_secret: bytes) -> str:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mechanical consistency gate for Keyholder v0.2 (W08).
+"""Mechanical consistency gate for Sealvra v0.2 (W08).
 
 Implements plan v3 SS4A G0-18 (f01 punch 11, f20 punch 12) as code
 instead of prose: grep the final document set for losing passages
@@ -42,7 +42,7 @@ Mechanics (f17 P-08 spirit: a gate that cannot be audited is prose):
   (ALLOW/FAIL), and the reason (which marker matched). A reviewer
   can audit the gate by reading the report, not by trusting it.
 - Context window: the hit line plus 2 lines on either side. A
-  winning rule stated as a section heading ("What Keyholder will
+  winning rule stated as a section heading ("What Sealvra will
   not do") or a following sentence ("There is no command for any
   of these") is therefore recognised; a bare losing passage with
   no such window FAILS. The window rule is deliberately narrow
@@ -50,7 +50,7 @@ Mechanics (f17 P-08 spirit: a gate that cannot be audited is prose):
   losing passage.
 - Default document set (the "final document set"): README.md,
   CONTRACT.md, BUILD-AND-TEST-REPORT.md, docs/*.md,
-  keyholder/*.py, packs/*.json, scripts/*.py, relative to the
+  sealvra/*.py, packs/*.json, scripts/*.py, relative to the
   build root. Test files are NOT in the set: tests legitimately
   name forbidden things to assert their absence (e.g. the
   adversarial helpers' forbidden-flag list), and scanning them
@@ -85,7 +85,7 @@ DOCSET_GLOBS = [
     "CONTRACT.md",
     "BUILD-AND-TEST-REPORT.md",
     "docs/*.md",
-    "keyholder/*.py",
+    "sealvra/*.py",
     "packs/*.json",
     "scripts/*.py",
 ]
@@ -285,7 +285,7 @@ def check_tree(root: Path | None = None) -> GrepReport:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Keyholder v0.2 grep gate (G0-18).")
+    parser = argparse.ArgumentParser(description="Sealvra v0.2 grep gate (G0-18).")
     parser.add_argument("--root", default=str(BUILD_ROOT), help="build root to scan")
     args = parser.parse_args(argv)
     report = check_tree(Path(args.root))

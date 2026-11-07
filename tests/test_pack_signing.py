@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from keyholder.packs import (
+from sealvra.packs import (
     PackRefusedError,
     RevokedLists,
     generate_pack_keypair,

@@ -29,8 +29,8 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from keyholder import cli
-from keyholder.audit import SecretScrubber, SecretDetectedError
+from sealvra import cli
+from sealvra.audit import SecretScrubber, SecretDetectedError
 
 FAKE_SECRET = "TEST-ONLY-egress-scrubber-secret-12345"
 BUILD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -115,7 +115,7 @@ class TestUpdateCheckPayload(unittest.TestCase):
         # Static check: the CLI payload section performs no I/O.
         # (The builder itself is also exercised above with no
         # network available to it.)
-        with open(os.path.join(BUILD_ROOT, "keyholder", "cli.py"),
+        with open(os.path.join(BUILD_ROOT, "sealvra", "cli.py"),
                   encoding="utf-8") as handle:
             source = handle.read()
         for token in ("urlopen", "http.client", "requests.", "socket.create"):
@@ -184,7 +184,7 @@ class TestCompanyLedgerOutOfScope(unittest.TestCase):
     def test_no_company_relay_sender_exists_in_tree(self):
         # The personal edition must not contain an org relay
         # sender that the docs could be misread as covering.
-        for name in os.listdir(os.path.join(BUILD_ROOT, "keyholder")):
+        for name in os.listdir(os.path.join(BUILD_ROOT, "sealvra")):
             self.assertNotIn("company", name)
             self.assertNotIn("relay", name)
 
@@ -256,14 +256,14 @@ class TestCrashScrubberHashOnly(unittest.TestCase):
 
         v3 N-L8 requires scrubber hashes to be computed at key-add
         time. Today no production call site feeds the scrubber:
-        grep finds no add_secret() caller in keyholder/ outside
+        grep finds no add_secret() caller in sealvra/ outside
         audit.py itself, and AuditLog defaults to no scrubber.
         Required fix: wire add_secret at key-add AND key-rotate
         time (retired secrets stay indexed), and only then add a
         crash-report sender behind per-report approval.
         """
         call_sites = 0
-        pkg = os.path.join(BUILD_ROOT, "keyholder")
+        pkg = os.path.join(BUILD_ROOT, "sealvra")
         for name in os.listdir(pkg):
             if not name.endswith(".py") or name == "audit.py":
                 continue

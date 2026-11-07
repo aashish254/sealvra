@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sign and verify Keyholder provider packs (CONTRACT section 13.3).
+"""Sign and verify Sealvra provider packs (CONTRACT section 13.3).
 
 Usage (run from the build root):
 
@@ -24,7 +24,7 @@ Usage (run from the build root):
     #    a trusted_keys.json entry (public key only, safe to commit).
     python3 scripts/sign_pack.py pubkey --key /path/outside/the/repo/pack-signing.pem
 
-This script is a thin CLI over keyholder.packs: all signature logic
+This script is a thin CLI over sealvra.packs: all signature logic
 lives there, so the verifier and the signer can never drift apart.
 It contacts no provider, reads no real keys, and writes only the
 .sig file (and, for gen-key, the key file you name).
@@ -42,7 +42,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from keyholder.packs import (  # noqa: E402
+from sealvra.packs import (  # noqa: E402
     PackRefusedError,
     generate_pack_keypair,
     load_pack,
@@ -141,7 +141,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Sign and verify Keyholder provider packs.")
+    parser = argparse.ArgumentParser(description="Sign and verify Sealvra provider packs.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_gen = sub.add_parser("gen-key", help="Generate a fresh Ed25519 pack-signing keypair.")

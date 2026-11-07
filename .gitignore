@@ -3,3 +3,24 @@
 __pycache__/
 *.pyc
 dist/
+
+# Editor and OS droppings.
+.DS_Store
+*.egg-info/
+.pytest_cache/
+
+# A vault or daemon directory created by running the app from inside the
+# checkout (the real one lives in $HOME/.sealvra and is never in the tree).
+.sealvra/
+
+# What the design harnesses write when they run (screenshots, the measured
+# geometry dump, the audit report). These are reproducible output, so they
+# stay out of the tree.
+design/qa/*.png
+design/qa/measurements.json
+design/qa/report.txt
+
+# The five HTML screens are the design of record and stay on the design
+# machine, per the owner's runbook: the repo carries the code and the Tk
+# gate that measures it, not the reference artwork.
+design/mockups/

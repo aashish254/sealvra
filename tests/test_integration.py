@@ -15,7 +15,7 @@ BUILD-AND-TEST-REPORT.md):
     ApprovalBroker/Approver two-step ceremony is unit-tested by W08;
     its wiring into the proxy's approve callable is the next slice.
   * Native OS behaviour (Keychain, Touch ID, DPAPI, Hello): NOT-RUN
-    on this Linux VM, as everywhere else.
+    on the checking host, as on every host in v0.2.
 """
 
 import json
@@ -24,12 +24,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from keyholder.audit import AuditLog, pseudonym
-from keyholder.broker import Broker
-from keyholder.packs import load_pack
-from keyholder.policy import PolicyEngine
-from keyholder.proxy import ProxyConfig, ProxyEngine
-from keyholder.tokens import body_sha256_hex, compute_pop
+from sealvra.audit import AuditLog, pseudonym
+from sealvra.broker import Broker
+from sealvra.packs import load_pack
+from sealvra.policy import PolicyEngine
+from sealvra.proxy import ProxyConfig, ProxyEngine
+from sealvra.tokens import body_sha256_hex, compute_pop
 
 from tests.mock_providers import (
     MockServer,
@@ -47,9 +47,9 @@ def _signed_headers(token, pop_key, method, host, path, body):
     ts = int(time.time())
     pop = compute_pop(pop_key, method, host, path, body, ts)
     headers = {
-        "x-keyholder-session": token,
-        "x-keyholder-pop": pop,
-        "x-keyholder-timestamp": str(ts),
+        "x-sealvra-session": token,
+        "x-sealvra-pop": pop,
+        "x-sealvra-timestamp": str(ts),
     }
     if body:
         headers["content-type"] = "application/json"

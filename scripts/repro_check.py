@@ -127,8 +127,8 @@ def check_packaging_epoch(root, epoch, results):
     if not make_zipapp.is_file():
         results.append(("SKIP packaging-epoch", "scripts/make_zipapp.py missing"))
         return
-    if not (root / "keyholder" / "__main__.py").is_file():
-        results.append(("SKIP packaging-epoch", "keyholder/__main__.py missing; nothing to package"))
+    if not (root / "sealvra" / "__main__.py").is_file():
+        results.append(("SKIP packaging-epoch", "sealvra/__main__.py missing; nothing to package"))
         return
     expected_dt = datetime.datetime.fromtimestamp(epoch, tz=datetime.timezone.utc).timetuple()[:6]
     env = dict(os.environ, SOURCE_DATE_EPOCH=str(epoch))
@@ -162,14 +162,14 @@ def check_packaging_epoch(root, epoch, results):
         # Cold-cache: fresh copy of the package + script, no __pycache__.
         # A difference here means cached bytecode changes the artifact
         # (F16-B4). NOTE (v0.2, open): scripts/make_zipapp.py (W20)
-        # currently bundles keyholder/__pycache__/*.pyc into the zip,
+        # currently bundles sealvra/__pycache__/*.pyc into the zip,
         # so this check FAILs on a tree where tests have run. That is
         # a real defect in the packaging script, not in this check:
         # the fix is to exclude __pycache__/*.pyc in make_zipapp's
         # collect_files (as repro_check's own deterministic_zip does).
         # This check must not be weakened to hide it.
         cold = Path(td) / "cold"
-        shutil.copytree(root / "keyholder", cold / "keyholder",
+        shutil.copytree(root / "sealvra", cold / "sealvra",
                         ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copytree(root / "scripts", cold / "scripts",
                         ignore=shutil.ignore_patterns("__pycache__"))
@@ -303,8 +303,8 @@ def main(argv=None):
     results.append(("INFO epoch", f"{epoch} from {epoch_src}"))
 
     # --- 1. determinism: real app tree ---
-    app_dir = root / "keyholder"
-    check_determinism(app_dir, epoch, "keyholder-tree", results)
+    app_dir = root / "sealvra"
+    check_determinism(app_dir, epoch, "sealvra-tree", results)
 
     # --- 1b. determinism: synthetic fixture (exercises the logic) ---
     with tempfile.TemporaryDirectory() as td:

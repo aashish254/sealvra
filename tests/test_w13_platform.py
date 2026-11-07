@@ -18,7 +18,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from keyholder import platform as P
+from sealvra import platform as P
 
 
 def mocked(platform_name):
@@ -287,7 +287,15 @@ class TestScopeAndPosture(unittest.TestCase):
         self.assertFalse(hasattr(P, "detect_screen_sharing"))
 
     def test_posture_records_all_fields_real_linux(self):
-        # Real-platform test (this VM is Linux): no mocked platform.
+        # Real-platform test: needs a Linux host, no mocked platform.
+        # On macOS/Windows this is NOT-RUN, never passed: polkit_password
+        # and seat0 are Linux mechanisms, and posture() refuses them on a
+        # foreign platform instead of guessing. Patching the platform to
+        # "linux" here would turn a real-platform test into a mock, which
+        # is the half-test/half-real drift this suite keeps calling out.
+        if sys.platform != "linux":
+            self.skipTest("NOT-RUN: real-Linux posture cannot be asserted "
+                          "on %s without mocking the platform" % sys.platform)
         rec = P.posture(
             approval_mechanism="polkit_password",
             backend_info={"backend": "wayland"},

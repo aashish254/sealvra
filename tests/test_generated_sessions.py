@@ -20,13 +20,13 @@ CASES = [{'kind': 'create', 'provider': 'github', 'session_class': 'destructive'
 CASE_COUNT = len(CASES)
 
 import time
-from keyholder.policy import classify_capability
-from keyholder.proxy import ProxyConfig, ProxyEngine
-from keyholder.sessions import (
+from sealvra.policy import classify_capability
+from sealvra.proxy import ProxyConfig, ProxyEngine
+from sealvra.sessions import (
     SessionError, SessionStore, classify, expiry_drain_seconds,
 )
-from keyholder.tokens import compute_pop, verify_pop
-from keyholder.types import Session as TypesSession
+from sealvra.tokens import compute_pop, verify_pop
+from sealvra.types import Session as TypesSession
 
 BASE_WALL = 1700000000.0
 POP_KEY = b"TEST-ONLY-pop-key-00000000000001"
@@ -331,21 +331,21 @@ def run_case(self, spec):
         host_part = authority.rpartition(":")[0] if ":" in authority else authority
         ts = int(time.time())
         pop = compute_pop(POP_KEY, "CONNECT", host_part, "/", b"", ts)
-        headers = [("X-Keyholder-Session", "tok-test"),
-                   ("X-Keyholder-Pop", pop),
-                   ("X-Keyholder-Timestamp", str(ts))]
+        headers = [("X-Sealvra-Session", "tok-test"),
+                   ("X-Sealvra-Pop", pop),
+                   ("X-Sealvra-Timestamp", str(ts))]
         if kind == "connect-auth" and spec["name"] == "missing-token":
-            headers = [h for h in headers if h[0] != "X-Keyholder-Session"]
+            headers = [h for h in headers if h[0] != "X-Sealvra-Session"]
             decision = engine.authorize_connect(authority, headers)
             assert decision.allowed is False, decision
             return
         if kind == "connect-auth" and spec["name"] == "missing-pop":
-            headers = [h for h in headers if h[0] != "X-Keyholder-Pop"]
+            headers = [h for h in headers if h[0] != "X-Sealvra-Pop"]
             decision = engine.authorize_connect(authority, headers)
             assert decision.allowed is False, decision
             return
         if kind == "connect-auth" and spec["name"] == "bad-pop":
-            headers = [(k, ("0" if v[0] != "0" else "1") + v[1:] if k == "X-Keyholder-Pop" else v)
+            headers = [(k, ("0" if v[0] != "0" else "1") + v[1:] if k == "X-Sealvra-Pop" else v)
                        for k, v in headers]
             decision = engine.authorize_connect(authority, headers)
             assert decision.allowed is False, decision

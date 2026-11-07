@@ -1,4 +1,4 @@
-"""W10 TEST SCALE ENGINE for Keyholder v0.2 (CONTRACT section 13.5).
+"""W10 TEST SCALE ENGINE for Sealvra v0.2 (CONTRACT section 13.5).
 
 Hand-written engine + its own tests. The engine generates the
 ``tests/test_generated_*.py`` files deterministically: same seed, same
@@ -35,8 +35,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from keyholder.packs import load_pack  # noqa: E402
-from keyholder.policy import PolicyEngine  # noqa: E402
+from sealvra.packs import load_pack  # noqa: E402
+from sealvra.policy import PolicyEngine  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 TESTS_DIR = Path(__file__).resolve().parent
@@ -822,7 +822,7 @@ def build_malformed_specs(reg):
     header_shapes = [
         ("dup-content-length", [("Content-Length", "0"), ("Content-Length", "0")]),
         ("dup-host", [("Host", "127.0.0.1:18765"), ("Host", "127.0.0.1:18765")]),
-        ("dup-session", [("X-Keyholder-Session", "a"), ("X-Keyholder-Session", "b")]),
+        ("dup-session", [("X-Sealvra-Session", "a"), ("X-Sealvra-Session", "b")]),
         ("bad-name", [("Bad Name", "x")]),
         ("cr-value", [("X-Test", "a\rb")]),
         ("lf-value", [("X-Test", "a\nb")]),
@@ -992,7 +992,7 @@ def build_misc_specs(reg):
              "key": ["spend-copy", detail if detail else "empty"]})
     # Pack integrity: mutate one endpoint's level, re-finalise, reload.
     import copy as _copy
-    from keyholder.packs import finalise_pack, parse_pack  # noqa: F401 (used by runner via import)
+    from sealvra.packs import finalise_pack, parse_pack  # noqa: F401 (used by runner via import)
     for provider, rule in ENDPOINTS:
         raw = PACKS[provider].raw
         mutated = _copy.deepcopy(raw)
@@ -1072,7 +1072,7 @@ def build_misc_specs(reg):
 # injection vs non-injection, kill/expiry effects, no secret output).
 
 POLICY_RUNNER = r'''
-from keyholder.policy import (
+from sealvra.policy import (
     GENERIC_DENIAL, PolicyEngine, agent_denial_message,
     decision_after_approval, evaluate_graphql_body, evaluate_graphql_document,
 )
@@ -1137,13 +1137,13 @@ def run_case(self, spec):
 
 SESSION_RUNNER = r'''
 import time
-from keyholder.policy import classify_capability
-from keyholder.proxy import ProxyConfig, ProxyEngine
-from keyholder.sessions import (
+from sealvra.policy import classify_capability
+from sealvra.proxy import ProxyConfig, ProxyEngine
+from sealvra.sessions import (
     SessionError, SessionStore, classify, expiry_drain_seconds,
 )
-from keyholder.tokens import compute_pop, verify_pop
-from keyholder.types import Session as TypesSession
+from sealvra.tokens import compute_pop, verify_pop
+from sealvra.types import Session as TypesSession
 
 BASE_WALL = 1700000000.0
 POP_KEY = b"TEST-ONLY-pop-key-00000000000001"
@@ -1448,21 +1448,21 @@ def run_case(self, spec):
         host_part = authority.rpartition(":")[0] if ":" in authority else authority
         ts = int(time.time())
         pop = compute_pop(POP_KEY, "CONNECT", host_part, "/", b"", ts)
-        headers = [("X-Keyholder-Session", "tok-test"),
-                   ("X-Keyholder-Pop", pop),
-                   ("X-Keyholder-Timestamp", str(ts))]
+        headers = [("X-Sealvra-Session", "tok-test"),
+                   ("X-Sealvra-Pop", pop),
+                   ("X-Sealvra-Timestamp", str(ts))]
         if kind == "connect-auth" and spec["name"] == "missing-token":
-            headers = [h for h in headers if h[0] != "X-Keyholder-Session"]
+            headers = [h for h in headers if h[0] != "X-Sealvra-Session"]
             decision = engine.authorize_connect(authority, headers)
             assert decision.allowed is False, decision
             return
         if kind == "connect-auth" and spec["name"] == "missing-pop":
-            headers = [h for h in headers if h[0] != "X-Keyholder-Pop"]
+            headers = [h for h in headers if h[0] != "X-Sealvra-Pop"]
             decision = engine.authorize_connect(authority, headers)
             assert decision.allowed is False, decision
             return
         if kind == "connect-auth" and spec["name"] == "bad-pop":
-            headers = [(k, ("0" if v[0] != "0" else "1") + v[1:] if k == "X-Keyholder-Pop" else v)
+            headers = [(k, ("0" if v[0] != "0" else "1") + v[1:] if k == "X-Sealvra-Pop" else v)
                        for k, v in headers]
             decision = engine.authorize_connect(authority, headers)
             assert decision.allowed is False, decision
@@ -1487,7 +1487,7 @@ AUDIT_RUNNER = r'''
 import json
 import tempfile
 from pathlib import Path
-from keyholder.audit import (
+from sealvra.audit import (
     AuditLog, SecretDetectedError, SecretScrubber, entry_hash_of, pseudonym,
 )
 
@@ -1673,11 +1673,11 @@ def run_case(self, spec):
 
 MALFORMED_RUNNER = r'''
 import urllib.parse
-from keyholder.policy import (
+from sealvra.policy import (
     CanonicalisationError, canonicalise_path, match_pattern,
     parse_json_no_duplicates,
 )
-from keyholder.proxy import (
+from sealvra.proxy import (
     GENERIC_DENIAL_BODY, ProxyConfig, ProxyEngine, canonicalise_target,
 )
 
@@ -1768,11 +1768,11 @@ import http.server
 import threading
 import time
 import urllib.parse
-from keyholder.broker import Broker
-from keyholder.packs import load_pack
-from keyholder.policy import PolicyEngine
-from keyholder.proxy import GENERIC_DENIAL_BODY, ProxyConfig, ProxyEngine
-from keyholder.tokens import compute_pop
+from sealvra.broker import Broker
+from sealvra.packs import load_pack
+from sealvra.policy import PolicyEngine
+from sealvra.proxy import GENERIC_DENIAL_BODY, ProxyConfig, ProxyEngine
+from sealvra.tokens import compute_pop
 
 FRESH_NOW = 1793188800
 FAKE_KEYS = {"github": "TEST-ONLY-gh-proxy-key", "gemini": "TEST-ONLY-gemini-proxy-key"}
@@ -1866,8 +1866,8 @@ def tearDownModule():
 def _signed(token, pop_key, method, host, path, body=b""):
     ts = int(time.time())
     pop = compute_pop(pop_key, method, host, path, body, ts)
-    return [("X-Keyholder-Session", token), ("X-Keyholder-Pop", pop),
-            ("X-Keyholder-Timestamp", str(ts))]
+    return [("X-Sealvra-Session", token), ("X-Sealvra-Pop", pop),
+            ("X-Sealvra-Timestamp", str(ts))]
 
 
 def _make_proxy(broker, created, provider, approve_fn, decisions, outcomes):
@@ -1981,23 +1981,23 @@ def run_case(self, spec):
             return resp, before
 
         if name == "missing-token":
-            headers = [h for h in base_headers if h[0] != "X-Keyholder-Session"]
+            headers = [h for h in base_headers if h[0] != "X-Sealvra-Session"]
             resp, before = call(headers)
             assert resp.status == 401 and resp.body == GENERIC_DENIAL_BODY
             assert len(HITS) == before
         elif name == "unknown-token":
-            headers = [(k, "kh_sess_" + "x" * 32 if k == "X-Keyholder-Session" else v)
+            headers = [(k, "kh_sess_" + "x" * 32 if k == "X-Sealvra-Session" else v)
                        for k, v in base_headers]
             resp, before = call(headers)
             assert resp.status == 401 and resp.body == GENERIC_DENIAL_BODY
             assert len(HITS) == before
         elif name == "missing-pop":
-            headers = [h for h in base_headers if h[0] != "X-Keyholder-Pop"]
+            headers = [h for h in base_headers if h[0] != "X-Sealvra-Pop"]
             resp, before = call(headers)
             assert resp.status == 401 and resp.body == GENERIC_DENIAL_BODY
             assert len(HITS) == before
         elif name == "bad-pop":
-            headers = [(k, ("0" if v[0] != "0" else "1") + v[1:] if k == "X-Keyholder-Pop" else v)
+            headers = [(k, ("0" if v[0] != "0" else "1") + v[1:] if k == "X-Sealvra-Pop" else v)
                        for k, v in base_headers]
             resp, before = call(headers)
             assert resp.status == 401 and resp.body == GENERIC_DENIAL_BODY
@@ -2157,12 +2157,12 @@ def run_case(self, spec):
 
 MISC_RUNNER = r'''
 import urllib.parse
-from keyholder.packs import PackRefusedError, parse_pack
-from keyholder.policy import (
+from sealvra.packs import PackRefusedError, parse_pack
+from sealvra.policy import (
     DecisionCache, PolicyDecision, SpendCap, spend_alert_copy,
 )
-from keyholder.audit import entry_hash_of
-from keyholder.proxy import contains_secret, validate_loopback_host
+from sealvra.audit import entry_hash_of
+from sealvra.proxy import contains_secret, validate_loopback_host
 
 
 def run_case(self, spec):
@@ -2304,7 +2304,7 @@ FILE_SPECS = (
     ("test_generated_policy.py", "Policy", build_policy_specs, POLICY_RUNNER,
      "import sys\nimport unittest\nfrom pathlib import Path\n\n"
      "sys.path.insert(0, str(Path(__file__).resolve().parent.parent))\n\n"
-     "from keyholder.packs import load_pack\n\n"
+     "from sealvra.packs import load_pack\n\n"
      "ROOT = Path(__file__).resolve().parent.parent\n"),
     ("test_generated_sessions.py", "Sessions", build_session_specs, SESSION_RUNNER,
      "import sys\nimport unittest\nfrom pathlib import Path\n\n"
@@ -2395,7 +2395,7 @@ class TestScaleEngine(unittest.TestCase):
         self.assertEqual(len(ENDPOINTS), 65)
 
     def test_concrete_instantiation_matches_own_rule(self):
-        from keyholder.policy import match_pattern
+        from sealvra.policy import match_pattern
 
         for provider, rule in ENDPOINTS:
             pack = PACKS[provider]

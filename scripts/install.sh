@@ -1,12 +1,12 @@
 #!/bin/sh
-# Keyholder v0.1 installer (Linux / macOS) -- W20.
+# Sealvra v0.1 installer (Linux / macOS) -- W20.
 #
 # Installs the zipapp distribution plus a launcher, and creates the
 # vault directory with restrictive permissions. Program and data are
 # separate on purpose:
-#   * program:  $PREFIX/share/keyholder/keyholder.pyz
-#               $PREFIX/bin/keyholder            (launcher)
-#   * data:     $VAULT_DIR (default $HOME/.keyholder)
+#   * program:  $PREFIX/share/sealvra/sealvra.pyz
+#               $PREFIX/bin/sealvra            (launcher)
+#   * data:     $VAULT_DIR (default $HOME/.sealvra)
 # Reinstalling NEVER touches existing vault data: if the vault
 # directory already exists its contents are left exactly as they are,
 # and this script says so out loud. Data carries over across reinstalls.
@@ -24,17 +24,17 @@
 # on macOS the platform keychain is the Tier B control, not this mode.
 #
 # Usage:
-#   scripts/install.sh [PATH-TO-KEYHOLDER.PYZ] [--prefix DIR]
+#   scripts/install.sh [PATH-TO-SEALVRA.PYZ] [--prefix DIR]
 #                       [--vault-dir DIR]
-# Defaults: pyz = <repo-root>/dist/keyholder.pyz (or ./dist/keyholder.pyz
+# Defaults: pyz = <repo-root>/dist/sealvra.pyz (or ./dist/sealvra.pyz
 # when run outside a checkout), prefix = $HOME/.local,
-# vault dir = ${KEYHOLDER_HOME:-$HOME/.keyholder}.
+# vault dir = ${SEALVRA_HOME:-$HOME/.sealvra}.
 
 set -eu
 
 PYZ=""
 PREFIX="$HOME/.local"
-VAULT_DIR="${KEYHOLDER_HOME:-$HOME/.keyholder}"
+VAULT_DIR="${SEALVRA_HOME:-$HOME/.sealvra}"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -47,7 +47,7 @@ while [ $# -gt 0 ]; do
         --vault-dir=*)
             VAULT_DIR="${1#--vault-dir=}"; shift ;;
         --help|-h)
-            echo "usage: install.sh [keyholder.pyz] [--prefix DIR] [--vault-dir DIR]"
+            echo "usage: install.sh [sealvra.pyz] [--prefix DIR] [--vault-dir DIR]"
             exit 0 ;;
         *)
             if [ -z "$PYZ" ]; then PYZ="$1"; shift; else
@@ -58,12 +58,12 @@ done
 
 if [ -z "$PYZ" ]; then
     SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-    if [ -f "$SCRIPT_DIR/../dist/keyholder.pyz" ]; then
-        PYZ="$SCRIPT_DIR/../dist/keyholder.pyz"
-    elif [ -f "dist/keyholder.pyz" ]; then
-        PYZ="dist/keyholder.pyz"
+    if [ -f "$SCRIPT_DIR/../dist/sealvra.pyz" ]; then
+        PYZ="$SCRIPT_DIR/../dist/sealvra.pyz"
+    elif [ -f "dist/sealvra.pyz" ]; then
+        PYZ="dist/sealvra.pyz"
     else
-        echo "install.sh: keyholder.pyz not found; pass its path explicitly." >&2
+        echo "install.sh: sealvra.pyz not found; pass its path explicitly." >&2
         exit 1
     fi
 fi
@@ -73,26 +73,59 @@ if [ ! -f "$PYZ" ]; then
 fi
 
 # Python 3.12 or newer is required by the v0.1 distribution.
-PYVER=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "none")
-case "$PYVER" in
-    3.1[2-9]|3.[2-9][0-9]|[4-9].*) ;;
-    *) echo "install.sh: Python 3.12 or newer is required (found: $PYVER)." >&2; exit 1 ;;
-esac
+#
+# The interpreter is selected, not assumed. macOS still ships
+# /usr/bin/python3 as 3.9, so probing bare `python3` made the documented
+# install command refuse to run on a clean Mac even when a 3.12 was
+# installed as python3.12. $PYTHON wins if the caller set it; otherwise
+# the versioned names are tried newest-first before the unversioned one.
+# The interpreter that passes is then baked into the launcher as an
+# absolute path, so the run-time PATH cannot resolve a different
+# interpreter than the one this check approved.
+if [ -n "${PYTHON:-}" ]; then
+    SEALVRA_PY_CANDIDATES="$PYTHON"
+else
+    SEALVRA_PY_CANDIDATES="python3.13 python3.12 python3.11 python3"
+fi
 
-PROGRAM_DIR="$PREFIX/share/keyholder"
-LAUNCHER="$PREFIX/bin/keyholder"
+SEALVRA_PY=""
+SEALVRA_PY_VER=""
+for _cand in $SEALVRA_PY_CANDIDATES; do
+    _path=$(command -v "$_cand" 2>/dev/null) || continue
+    _ver=$("$_path" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null) \
+        || continue
+    case "$_ver" in
+        3.1[2-9]|3.[2-9][0-9]|[4-9].*)
+            SEALVRA_PY="$_path"
+            SEALVRA_PY_VER="$_ver"
+            break
+            ;;
+    esac
+done
+
+if [ -z "$SEALVRA_PY" ]; then
+    echo "install.sh: Python 3.12 or newer is required; none of these qualified: $SEALVRA_PY_CANDIDATES." >&2
+    echo "install.sh: install 3.12, or set PYTHON=/path/to/python3.12 and re-run." >&2
+    exit 1
+fi
+echo "using python $SEALVRA_PY_VER: $SEALVRA_PY"
+
+PROGRAM_DIR="$PREFIX/share/sealvra"
+LAUNCHER="$PREFIX/bin/sealvra"
 
 mkdir -p "$PROGRAM_DIR" "$PREFIX/bin"
-cp "$PYZ" "$PROGRAM_DIR/keyholder.pyz"
-chmod 755 "$PROGRAM_DIR/keyholder.pyz"
+cp "$PYZ" "$PROGRAM_DIR/sealvra.pyz"
+chmod 755 "$PROGRAM_DIR/sealvra.pyz"
 
 # Launcher: absolute path written at install time, so reinstalling to a
 # different prefix replaces it cleanly. The vault dir is NOT baked in:
-# the program resolves it itself (KEYHOLDER_HOME or $HOME/.keyholder).
+# the program resolves it itself (SEALVRA_HOME or $HOME/.sealvra).
 cat > "$LAUNCHER" <<EOF
 #!/bin/sh
-# Generated by Keyholder install.sh -- do not edit by hand.
-exec python3 "$PROGRAM_DIR/keyholder.pyz" "\$@"
+# Generated by Sealvra install.sh -- do not edit by hand.
+# Absolute interpreter: the one that passed the version and dependency
+# checks at install time, not whatever PATH happens to resolve today.
+exec "$SEALVRA_PY" "$PROGRAM_DIR/sealvra.pyz" "\$@"
 EOF
 chmod 755 "$LAUNCHER"
 
@@ -106,13 +139,14 @@ else
 fi
 chmod 700 "$VAULT_DIR"
 
-# Dependency note (warning only, never a silent substitute).
-if ! python3 -c 'import cryptography, argon2' 2>/dev/null; then
+# Dependency note (warning only, never a silent substitute). Checked
+# against the interpreter the launcher will actually use.
+if ! "$SEALVRA_PY" -c 'import cryptography, argon2' 2>/dev/null; then
     echo "warning: Python packages 'cryptography' and/or 'argon2-cffi' are not installed."
-    echo "warning: install them from requirements.txt before running keyholder."
+    echo "warning: install them from requirements.txt before running sealvra."
 fi
 
-echo "installed keyholder program to: $PROGRAM_DIR/keyholder.pyz"
+echo "installed sealvra program to: $PROGRAM_DIR/sealvra.pyz"
 echo "installed launcher to:          $LAUNCHER"
 echo "vault directory (data, preserved on reinstall): $VAULT_DIR"
-echo "make sure $PREFIX/bin is on your PATH, then run: keyholder --help"
+echo "make sure $PREFIX/bin is on your PATH, then run: sealvra --help"

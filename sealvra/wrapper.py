@@ -1,4 +1,4 @@
-"""Keyholder W12 — agent wrapper.
+"""Sealvra W12 — agent wrapper.
 
 Launches an agent process with a scrubbed environment, isolated
 credential homes, verified binary resolution, and PoP signing via an
@@ -397,7 +397,7 @@ def _config_credential_keys(path: str) -> list:
 def inventory_standing_credentials(home: str, project_dir: str | None = None) -> list:
     """Inventory (presence only) of standing credentials under ``home``.
 
-    This is the ``keyholder doctor`` inventory. It reports *that* a
+    This is the ``sealvra doctor`` inventory. It reports *that* a
     bypass store exists and where — it never reads or returns a
     credential value. Covers, per f10 B1/B6/B16 and v3 N-K1:
     shell profiles, CLI credential stores, vendor logins, git
@@ -608,9 +608,9 @@ def apply_shell_migration(home: str, dry_run: bool = False) -> dict:
         new_lines = []
         for idx, line in enumerate(lines, 1):
             if idx in comment_lines:
-                new_lines.append("# keyholder-migrated: " + line
+                new_lines.append("# sealvra-migrated: " + line
                                  if line.endswith("\n")
-                                 else "# keyholder-migrated: " + line + "\n")
+                                 else "# sealvra-migrated: " + line + "\n")
             else:
                 new_lines.append(line)
         tmp = p + ".kh-migrate-tmp"
@@ -943,9 +943,9 @@ class SidecarSigner:
                 raise ValueError("PoP nonce reuse within session lifetime")
             self._nonce_seen.add(nonce)
         return {
-            "X-Keyholder-PoP": pop,
-            "X-Keyholder-Timestamp": str(ts),
-            "X-Keyholder-Body-Sha256": body_hash,
+            "X-Sealvra-PoP": pop,
+            "X-Sealvra-Timestamp": str(ts),
+            "X-Sealvra-Body-Sha256": body_hash,
         }
 
     def verify(self, method: str, host: str, canonical_path: str,
@@ -1008,8 +1008,8 @@ class SidecarServer:
                 body = bytes.fromhex(parts[4]) if parts[4] else b""
                 headers = self.signer.sign(parts[1], parts[2], parts[3], body)
                 conn.sendall(
-                    ("%s\n%s" % (headers["X-Keyholder-PoP"],
-                                 headers["X-Keyholder-Timestamp"])).encode())
+                    ("%s\n%s" % (headers["X-Sealvra-PoP"],
+                                 headers["X-Sealvra-Timestamp"])).encode())
             except Exception:
                 try:
                     conn.sendall(b"DENIED")
@@ -1034,7 +1034,7 @@ class SidecarServer:
             if resp == "DENIED" or not resp:
                 raise WrapperRefusal("sidecar refused to sign")
             pop, ts = resp.strip().split("\n")
-            return {"X-Keyholder-PoP": pop, "X-Keyholder-Timestamp": ts}
+            return {"X-Sealvra-PoP": pop, "X-Sealvra-Timestamp": ts}
         finally:
             client.close()
 
@@ -1130,9 +1130,9 @@ def launch_agent(tool: str, argv: list, proxy_base_url: str,
     if removed:
         warnings.append("scrubbed credential-shaped env vars: %s"
                         % ", ".join(sorted(removed)))
-    env["KEYHOLDER_PROXY_BASE_URL"] = proxy_base_url
+    env["SEALVRA_PROXY_BASE_URL"] = proxy_base_url
     if sidecar is not None:
-        env["KEYHOLDER_SIDECAR_SOCKET"] = sidecar.socket_path
+        env["SEALVRA_SIDECAR_SOCKET"] = sidecar.socket_path
         # Sidecar mode: the agent never holds the session token in env;
         # it asks the sidecar to sign. The token itself stays broker-side.
     elif session_token is not None and profile.token_env_var:

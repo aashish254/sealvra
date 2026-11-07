@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from keyholder import github as gh
+from sealvra import github as gh
 
 
 def cls(method, path, body=None, allowlist=None):

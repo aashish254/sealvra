@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Windows verification for Keyholder v0.2 (W16).
+"""Windows verification for Sealvra v0.2 (W16).
 
-Runs on this Linux VM and checks everything checkable WITHOUT Windows:
+Runs on the checking host, whatever platform that is, and checks
+everything checkable WITHOUT Windows:
 
-  W1  every Python file under keyholder/, scripts/, tests/ compiles
+  W1  every Python file under sealvra/, scripts/, tests/ compiles
   W2  no POSIX-only import or process-group API (pwd, grp, fcntl,
       os.fork, os.killpg, os.getpgid, os.setsid, os.setpgid) is used
       outside code gated to a non-Windows platform (or an
       AttributeError fallback) -- ungated use would crash on Windows,
       where those names do not exist
-  W3  keyholder/platform.py Windows branches are syntactically valid
+  W3  sealvra/platform.py Windows branches are syntactically valid
       and branch on sys.platform == 'win32' (via current_platform)
   W4  Windows storage is S2, user-scoped (DPAPI boundary = user
       account, not application; same-user direct read = True)
@@ -21,7 +22,7 @@ Runs on this Linux VM and checks everything checkable WITHOUT Windows:
       usable local gesture -> None); Remote Credential Guard +
       biometric = T1 with badge; remote-typed PIN <= T2, never T1
   W8  TPM/domain posture never changes the S2 storage tier
-  W9  keyholder/approval.py Windows branch is DESIGN ONLY and
+  W9  sealvra/approval.py Windows branch is DESIGN ONLY and
       requires the verifier helper (destructive approval is not
       runnable from that module until the helper exists)
   W10 daemon control plane falls back to loopback TCP (127.0.0.1)
@@ -38,14 +39,14 @@ Runs on this Linux VM and checks everything checkable WITHOUT Windows:
       win32 run -- sys.platform patched to "win32" in-process and a
       fake worker process, labelled MOCKED. This proves the branch
       logic, never a real Windows kill. The process-tree / job-object
-      kill for worker *children* is NOT covered: _scan_children is
-      /proc-only and returns [] on Windows, so terminate() on
-      Windows kills the direct worker only.
+      kill for worker *children* is NOT covered: _scan_children reads
+      /proc (Linux) or shells out to ps (macOS/BSD) and returns [] on
+      Windows, so terminate() on Windows kills the direct worker only.
   W15 DPAPI/Hello/CredUI verifier-helper paths: gate logic only
       (boolean-only helper design, password-in-memory warning
       without it, Hello biometric vs PIN split, Guard+PIN = T2) plus
       an absence check -- no native DPAPI/CredUI binding (windll /
-      CryptUnprotectData) exists in keyholder/, so nothing pretends
+      CryptUnprotectData) exists in sealvra/, so nothing pretends
       to call the real APIs -- plus a MOCKED boolean-only boundary
       simulation (a fake helper returning bool; the broker side
       receives bool only, never the password string).
@@ -58,8 +59,8 @@ Runs on this Linux VM and checks everything checkable WITHOUT Windows:
       resolution, Python-version handling, no network cmdlets, no
       admin elevation. PowerShell *parsing* is a separate check:
       it runs only when pwsh is available and is otherwise NOT-RUN.
-  W17 zipapp host run: dist/keyholder.pyz is a valid zip with
-      __main__.py and runs --help under this Linux host's CPython.
+  W17 zipapp host run: dist/sealvra.pyz is a valid zip with
+      __main__.py and runs --help under the checking host's CPython.
       That proves the zipapp, not Windows Python (NOT-RUN).
   W18 NSIS spec-only: no .nsi file and no installer binary exist;
       docs/windows.md states the NSIS shape as spec only.
@@ -69,8 +70,9 @@ What this script CANNOT check (recorded as NOT-RUN, never PASSED):
   (biometric or PIN), CredUIPromptForWindowsCredentials, the isolated
   verifier-helper process, Remote Credential Guard, running
   install.ps1 / uninstall.ps1 on Windows, PowerShell parsing of
-  install.ps1 / uninstall.ps1 (pwsh is unavailable on this Linux
-  VM), running the zipapp under Windows Python, the Windows
+  install.ps1 / uninstall.ps1 (pwsh is unavailable on the checking
+  host unless PowerShell is installed), running the zipapp under
+  Windows Python, the Windows
   supervisor process-tree / job-object kill for worker children,
   Windows worker orphan self-termination (os.kill(pid, 0) polling),
   SendInput injection behaviour, and any NSIS installer build or
@@ -114,8 +116,8 @@ NOT_RUN = [
     "Remote Credential Guard acceptance on a domain-joined machine",
     "running scripts/install.ps1 on Windows",
     "running scripts/uninstall.ps1 on Windows (default and wipe paths)",
-    "PowerShell parsing of scripts/install.ps1 and scripts/uninstall.ps1 (pwsh unavailable on this Linux VM)",
-    "running dist/keyholder.pyz under Windows Python 3.12",
+    "PowerShell parsing of scripts/install.ps1 and scripts/uninstall.ps1 (pwsh unavailable on the checking host)",
+    "running dist/sealvra.pyz under Windows Python 3.12",
     "Windows supervisor process-tree / job-object kill for worker children",
     "Windows worker orphan self-termination via os.kill(pid, 0) polling",
     "SendInput injection against a broker-window destructive prompt",
@@ -199,7 +201,7 @@ def _scan_posix(tree: ast.AST, path: Path) -> list[str]:
 def _check_compile(root: Path) -> tuple[str, str]:
     bad: list[str] = []
     count = 0
-    for sub in ("keyholder", "scripts", "tests"):
+    for sub in ("sealvra", "scripts", "tests"):
         for path in sorted((root / sub).rglob("*.py")):
             if "__pycache__" in path.parts:
                 continue
@@ -215,7 +217,7 @@ def _check_compile(root: Path) -> tuple[str, str]:
 
 def _check_posix(root: Path) -> tuple[str, str]:
     findings: list[str] = []
-    for sub in ("keyholder", "scripts", "tests"):
+    for sub in ("sealvra", "scripts", "tests"):
         for path in sorted((root / sub).rglob("*.py")):
             if "__pycache__" in path.parts:
                 continue
@@ -232,11 +234,11 @@ def _check_posix(root: Path) -> tuple[str, str]:
 def _check_deps(root: Path) -> tuple[str, str]:
     stdlib = sys.stdlib_module_names
     # First-party: the build root's own package (absolute imports such
-    # as `from keyholder import daemon` inside the package) is not a
+    # as `from sealvra import daemon` inside the package) is not a
     # third-party dependency.
-    first_party = {"keyholder"}
+    first_party = {"sealvra"}
     bad: list[str] = []
-    for sub in ("keyholder", "scripts"):
+    for sub in ("sealvra", "scripts"):
         for path in sorted((root / sub).rglob("*.py")):
             if "__pycache__" in path.parts:
                 continue
@@ -282,7 +284,7 @@ def _check_no_exe(root: Path) -> tuple[str, str]:
 def _load_platform(root: Path):
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
-    from keyholder import platform as plat  # noqa: PLC0415
+    from sealvra import platform as plat  # noqa: PLC0415
 
     return plat
 
@@ -317,15 +319,15 @@ class _FakeWin32Process:
     def wait(self, timeout=None):
         self._wait_calls += 1
         if self._escalate and self._wait_calls == 1:
-            raise subprocess.TimeoutExpired("keyholder", timeout)
+            raise subprocess.TimeoutExpired("sealvra", timeout)
         if not self._dead:
-            raise subprocess.TimeoutExpired("keyholder", timeout)
+            raise subprocess.TimeoutExpired("sealvra", timeout)
         return 0
 
 
 def _check_supervisor_win32(root: Path) -> tuple[str, str]:
     """W14: supervisor win32 kill path (AST + MOCKED dynamic run)."""
-    sup_path = root / "keyholder" / "supervisor.py"
+    sup_path = root / "sealvra" / "supervisor.py"
     src = sup_path.read_text(encoding="utf-8")
     tree = ast.parse(src)
     # start_new_session must sit inside a `sys.platform != "win32"` If.
@@ -342,7 +344,7 @@ def _check_supervisor_win32(root: Path) -> tuple[str, str]:
     try:
         if str(root) not in sys.path:
             sys.path.insert(0, str(root))
-        from keyholder.supervisor import Supervisor, WorkerHandle  # noqa: PLC0415
+        from sealvra.supervisor import Supervisor, WorkerHandle  # noqa: PLC0415
         original_platform = sys.platform
         try:
             sys.platform = "win32"  # type: ignore[assignment]  # MOCKED only
@@ -359,8 +361,8 @@ def _check_supervisor_win32(root: Path) -> tuple[str, str]:
                     f"MOCKED win32 terminate: expected {expected}, got {result['method']}")
                 assert result["terminated"] is True
                 assert proc.terminate_calls == 1
-            # Children note: _scan_children is /proc-only; on a real
-            # Windows host it returns [] (no /proc), so this path
+            # Children note: _scan_children uses /proc or ps; the win32
+            # branch returns [] before either, so a real Windows host
             # kills the direct worker only -- recorded, not hidden.
             assert "Path(\"/proc\")" in src or 'Path("/proc")' in src
         finally:
@@ -369,7 +371,8 @@ def _check_supervisor_win32(root: Path) -> tuple[str, str]:
         return "FAIL", f"MOCKED win32 supervisor kill failed: {exc}"
     return "PASS", (
         "MOCKED win32 run: terminate() -> terminate-win32, timeout -> kill-win32, "
-        "no killpg; worker-children tree kill remains NOT-RUN (scan is /proc-only)")
+        "no killpg; worker-children tree kill remains NOT-RUN "
+        "(the /proc-or-ps scan has a win32 branch that returns [])")
 
 
 def _check_verifier_helper_paths(root: Path) -> tuple[str, str]:
@@ -377,7 +380,7 @@ def _check_verifier_helper_paths(root: Path) -> tuple[str, str]:
     try:
         if str(root) not in sys.path:
             sys.path.insert(0, str(root))
-        from keyholder import platform as plat  # noqa: PLC0415
+        from sealvra import platform as plat  # noqa: PLC0415
         helper = plat.windows_verifier_helper_design()
         assert helper["return_value"].startswith("boolean only")
         assert "CredUIPromptForWindowsCredentials" in helper["process"]
@@ -395,13 +398,13 @@ def _check_verifier_helper_paths(root: Path) -> tuple[str, str]:
     except Exception as exc:  # noqa: BLE001
         return "FAIL", f"verifier-helper gate logic failed: {exc}"
     # Absence check: no native DPAPI/CredUI binding anywhere in
-    # keyholder/. Prose mentions of CryptUnprotectData in design
+    # sealvra/. Prose mentions of CryptUnprotectData in design
     # descriptions (platform.py) are not bindings, and daemon.py's
     # ctypes use is macOS getpeereid behind a win32 early-return --
     # neither counts. A binding means windll or a real Win32 API
     # call site (name followed by "(").
     bindings = []
-    for path in sorted((root / "keyholder").rglob("*.py")):
+    for path in sorted((root / "sealvra").rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
         text = path.read_text(encoding="utf-8")
@@ -423,7 +426,7 @@ def _check_verifier_helper_paths(root: Path) -> tuple[str, str]:
     return "PASS", (
         "helper design is boolean-only (CredUI + LogonUser, mlocked, zeroed); "
         "Hello PIN never boolean-only; Guard+PIN = T2, never biometric; "
-        "no native DPAPI binding in keyholder/; MOCKED boundary returns bool only")
+        "no native DPAPI binding in sealvra/; MOCKED boundary returns bool only")
 
 
 def _check_installer_static(root: Path) -> tuple[str, str]:
@@ -442,8 +445,8 @@ def _check_installer_static(root: Path) -> tuple[str, str]:
                 problems.append(f"{name}: unexpected {bad} (network/elevation)")
         if "curl " in text or "wget " in text:
             problems.append(f"{name}: unexpected network download command")
-    if "%~dp0..\\keyholder.pyz" not in install:
-        problems.append("install.ps1: launcher does not resolve keyholder.pyz relative to itself")
+    if "%~dp0..\\sealvra.pyz" not in install:
+        problems.append("install.ps1: launcher does not resolve sealvra.pyz relative to itself")
     if "existing data preserved" not in install and "preserved untouched" not in install:
         problems.append("install.ps1: vault preservation not stated")
     for line in install.splitlines():
@@ -474,7 +477,7 @@ def _check_installer_static(root: Path) -> tuple[str, str]:
     typed_idx = wipe_section.find("Type WIPE to confirm")
     if not (0 <= typed_idx < vault_remove):
         problems.append("uninstall.ps1: vault removal does not follow the typed-WIPE check")
-    if "keyholder-wipe-receipt-" not in wipe_section or "Join-Path $HomeDir" not in wipe_section:
+    if "sealvra-wipe-receipt-" not in wipe_section or "Join-Path $HomeDir" not in wipe_section:
         problems.append("uninstall.ps1: wipe receipt is not placed outside the vault (user home)")
     # Receipt timestamp must be colon-free: colons are illegal in
     # Windows filenames, and the old format aborted the wipe.
@@ -497,7 +500,9 @@ def _check_ps_parse(root: Path) -> tuple[str, str]:
     """W16-parse: real PowerShell parse when pwsh exists, else NOT-RUN."""
     pwsh = shutil.which("pwsh") or shutil.which("powershell")
     if pwsh is None:
-        return "NOT-RUN", "pwsh/powershell unavailable on this Linux VM (parse-check NOT-RUN, never claimed)"
+        return "NOT-RUN", (
+            "pwsh/powershell unavailable on the checking host (%s): "
+            "parse-check NOT-RUN, never claimed" % sys.platform)
     for name in ("install.ps1", "uninstall.ps1"):
         path = root / "scripts" / name
         expr = (
@@ -513,16 +518,16 @@ def _check_ps_parse(root: Path) -> tuple[str, str]:
 
 
 def _check_zipapp_host(root: Path) -> tuple[str, str]:
-    """W17: zipapp valid + runs --help on this Linux host (NOT Windows Python)."""
-    pyz = root / "dist" / "keyholder.pyz"
+    """W17: zipapp valid + runs --help on the checking host (NOT Windows Python)."""
+    pyz = root / "dist" / "sealvra.pyz"
     if not pyz.is_file():
-        return "FAIL", "dist/keyholder.pyz missing -- rebuild with scripts/make_zipapp.py"
+        return "FAIL", "dist/sealvra.pyz missing -- rebuild with scripts/make_zipapp.py"
     try:
         with zipfile.ZipFile(pyz) as zf:
             names = zf.namelist()
         assert "__main__.py" in names, "zipapp lacks __main__.py"
     except Exception as exc:  # noqa: BLE001
-        return "FAIL", f"dist/keyholder.pyz is not a valid zipapp: {exc}"
+        return "FAIL", f"dist/sealvra.pyz is not a valid zipapp: {exc}"
     result = subprocess.run([sys.executable, str(pyz), "--help"],
                             capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
@@ -558,14 +563,14 @@ def run_checks(root: Path) -> list[dict]:
     add("W12-no-exe-claim", status, detail)
 
     # W3/W4/W5/W6/W7/W8: pure gate-logic functions in platform.py,
-    # called with platform="win32" on this Linux host. These prove the
+    # called with platform="win32" on the checking host. These prove the
     # gate logic only -- never native Windows behaviour (NOT-RUN).
     try:
         plat = _load_platform(root)
     except Exception as exc:  # noqa: BLE001 -- report, do not crash
         for check_id in ("W3-win32-branch", "W4-storage-S2", "W5-hello-split",
                          "W6-verifier-helper", "W7-rdp-row", "W8-tpm-domain"):
-            add(check_id, "FAIL", f"cannot import keyholder.platform: {exc}")
+            add(check_id, "FAIL", f"cannot import sealvra.platform: {exc}")
         plat = None
     if plat is not None:
         try:
@@ -582,7 +587,7 @@ def run_checks(root: Path) -> list[dict]:
             s = plat.storage_tier("win32")
             assert s.tier == "S2" and s.same_user_direct_read is True
             assert "user account, not the application" in s.description
-            assert "Hello step-up gates Keyholder-mediated use only" in s.description
+            assert "Hello step-up gates Sealvra-mediated use only" in s.description
             add("W4-storage-S2", "PASS",
                 "win32 storage = S2, user-scoped, same-user direct read True")
         except Exception as exc:  # noqa: BLE001
@@ -654,7 +659,7 @@ def run_checks(root: Path) -> list[dict]:
     try:
         if str(root) not in sys.path:
             sys.path.insert(0, str(root))
-        from keyholder import approval as appr  # noqa: PLC0415
+        from sealvra import approval as appr  # noqa: PLC0415
         tier = appr.platform_tier_for(platform="win32")
         assert tier.helper_required is True
         assert "DESIGN ONLY" in tier.notes and "not runnable" in tier.notes
@@ -667,7 +672,7 @@ def run_checks(root: Path) -> list[dict]:
     # W10: daemon loopback-TCP fallback, by source inspection (runtime
     # behaviour on Windows is NOT-RUN).
     try:
-        daemon_src = (root / "keyholder" / "daemon.py").read_text(encoding="utf-8")
+        daemon_src = (root / "sealvra" / "daemon.py").read_text(encoding="utf-8")
         assert "AF_UNIX" in daemon_src and "AF_INET" in daemon_src
         assert "127.0.0.1" in daemon_src
         assert "never 0.0.0.0" in daemon_src or "never a network-facing" in daemon_src
@@ -679,10 +684,10 @@ def run_checks(root: Path) -> list[dict]:
     # W13: docs/windows.md must exist and must not claim an exe.
     try:
         doc = (root / "docs" / "windows.md").read_text(encoding="utf-8")
-        assert "NOT-RUN" in doc and "keyholder.exe" not in doc
+        assert "NOT-RUN" in doc and "sealvra.exe" not in doc
         assert "DPAPI" in doc and "S2" in doc
         add("W13-windows-doc", "PASS",
-            "docs/windows.md exists, states NOT-RUN items, claims no keyholder.exe")
+            "docs/windows.md exists, states NOT-RUN items, claims no sealvra.exe")
     except Exception as exc:  # noqa: BLE001
         add("W13-windows-doc", "FAIL", f"docs/windows.md check failed: {exc}")
 
@@ -705,13 +710,13 @@ def run_checks(root: Path) -> list[dict]:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Windows verification for Keyholder v0.2 (W16).")
+    parser = argparse.ArgumentParser(description="Windows verification for Sealvra v0.2 (W16).")
     parser.add_argument("--root", default=None, help="Build root (default: parent of scripts/).")
     parser.add_argument("--json", action="store_true", help="Print results as JSON.")
     args = parser.parse_args(argv)
     root = Path(args.root) if args.root else Path(__file__).resolve().parent.parent
-    if not (root / "keyholder").is_dir():
-        print(f"windows_check: no keyholder/ package under {root}", file=sys.stderr)
+    if not (root / "sealvra").is_dir():
+        print(f"windows_check: no sealvra/ package under {root}", file=sys.stderr)
         return 2
     results = run_checks(root)
     if args.json:

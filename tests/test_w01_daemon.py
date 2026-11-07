@@ -28,10 +28,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from keyholder.broker import Broker, SessionNotFound  # noqa: E402
-from keyholder.daemon import Daemon, DaemonAlreadyRunning, DaemonNotRunning  # noqa: E402
-from keyholder.supervisor import Supervisor, WorkerAlreadyExists  # noqa: E402
-from keyholder.types import Session  # noqa: E402
+from sealvra.broker import Broker, SessionNotFound  # noqa: E402
+from sealvra.daemon import Daemon, DaemonAlreadyRunning, DaemonNotRunning  # noqa: E402
+from sealvra.supervisor import Supervisor, WorkerAlreadyExists  # noqa: E402
+from sealvra.types import Session  # noqa: E402
 
 
 def free_port() -> int:
@@ -64,7 +64,7 @@ class DaemonLifecycleTest(unittest.TestCase):
         self.assertIsNotNone(status.socket_path)
         self.assertEqual(status.session_count, 0)
         # Socket path is inside a temp dir, never a fixed home path.
-        self.assertNotIn(".keyholder/sessions", status.socket_path or "")
+        self.assertNotIn(".sealvra/sessions", status.socket_path or "")
         stopped = self.daemon.stop()
         self.assertFalse(stopped.running)
         self.assertEqual(stopped.session_count, 0)
@@ -158,7 +158,7 @@ class OrphanWorkerTest(unittest.TestCase):
         env = dict(os.environ)
         env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
         worker = subprocess.Popen(
-            [sys.executable, "-m", "keyholder.supervisor", "--worker",
+            [sys.executable, "-m", "sealvra.supervisor", "--worker",
              "sess-TEST-ONLY-orphan", "key-TEST-ONLY-0020", str(dummy.pid)],
             cwd=str(ROOT), env=env,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -178,7 +178,7 @@ class OrphanWorkerTest(unittest.TestCase):
         env = dict(os.environ)
         env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
         worker = subprocess.Popen(
-            [sys.executable, "-m", "keyholder.supervisor", "--worker",
+            [sys.executable, "-m", "sealvra.supervisor", "--worker",
              "sess-TEST-ONLY-orphan2", "key-TEST-ONLY-0021", "999999"],
             cwd=str(ROOT), env=env,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -341,7 +341,7 @@ class TokenPopTtlTest(unittest.TestCase):
         self.assertEqual(ttl, 60 * 60)  # read_public default
 
     def test_connect_refused_for_write_and_destructive(self):
-        from keyholder.broker import SessionCreateError
+        from sealvra.broker import SessionCreateError
         with self.assertRaises(SessionCreateError):
             self.daemon.create_session(
                 key_id="key-TEST-ONLY-0044", provider="github",
@@ -409,8 +409,24 @@ class DaemonIPCProtocolTest(unittest.TestCase):
         doctor = self._rpc({"id": 9, "cmd": "doctor", "args": {}})["result"]
         self.assertIn("Tier B", doctor["tier_b_note"])
         audit = self._rpc({"id": 10, "cmd": "audit.verify", "args": {}})
-        self.assertFalse(audit["ok"])
-        self.assertEqual(audit["error"]["code"], "KH-1005")
+        # v0.2 Phase 1: `audit.verify` over IPC is the real chain
+        # verifier. It used to answer KH-1005 ("not wired here") and this
+        # test asserted that refusal. Now the RPC succeeds and the
+        # VERDICT carries the state, so the assertions below check the
+        # verdict and the CONTRACT section 8 exit-code mapping instead.
+        self.assertTrue(audit["ok"], audit.get("error"))
+        verdict = audit["result"]
+        self.assertIn(verdict["status"],
+                      ("OK", "UNANCHORED", "TAMPERED", "MISSING-DIRECTORY"))
+        self.assertEqual(verdict["exit_code"],
+                         {"OK": 0, "UNANCHORED": 2}.get(verdict["status"], 3))
+        # A caller cannot aim the verifier at an arbitrary directory:
+        # the root is the daemon's own, whatever the args claim.
+        probe = self._rpc({"id": 12, "cmd": "audit.verify",
+                           "args": {"root": "/etc"}})
+        self.assertTrue(probe["ok"], probe.get("error"))
+        self.assertEqual(probe["result"]["root"], verdict["root"])
+        self.assertNotEqual(probe["result"]["root"], "/etc")
         unknown = self._rpc({"id": 11, "cmd": "nope", "args": {}})
         self.assertEqual(unknown["error"]["code"], "KH-2001")
 

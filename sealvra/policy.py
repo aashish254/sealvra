@@ -1,4 +1,4 @@
-"""Keyholder v0.1 policy decision engine (W05).
+"""Sealvra v0.1 policy decision engine (W05).
 
 Implements CONTRACT section 6 and v3 plan section 1G (proxy/policy).
 Tier statement: this engine is a Tier A control (interface-bound agent).
@@ -41,7 +41,7 @@ Rules that are load-bearing for the manager check:
     write, via the pack's ``read_like_posts`` exemption list (v3 N-B6).
 
 This module is stdlib-only. It deliberately does NOT import
-``keyholder.types``: W01 owns that file and it does not exist yet in
+``sealvra.types``: W01 owns that file and it does not exist yet in
 this build root. ``PolicyDecision`` here mirrors the CONTRACT section 2
 shape exactly (allowed, level, reason, rule_id) so W01/W04 can swap the
 import without changing call sites; the manager should confirm the

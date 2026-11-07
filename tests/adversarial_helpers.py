@@ -1,4 +1,4 @@
-"""Adversarial helpers for Keyholder v0.1 (W14).
+"""Adversarial helpers for Sealvra v0.1 (W14).
 
 Stdlib only. FAKE TEST-ONLY secrets only, loopback only, nothing here
 touches a real provider, a real key, or the network beyond loopback.
@@ -210,16 +210,16 @@ class NotRun(Exception):
 
 
 def require_real(module_name: str):
-    """Import a real keyholder module or raise NotRun (never a pass)."""
+    """Import a real sealvra module or raise NotRun (never a pass)."""
     try:
-        return __import__(f"keyholder.{module_name}", fromlist=["*"])
+        return __import__(f"sealvra.{module_name}", fromlist=["*"])
     except Exception as exc:  # module absent OR broken import: not runnable
-        raise NotRun(f"keyholder.{module_name} not importable: {exc}")
+        raise NotRun(f"sealvra.{module_name} not importable: {exc}")
 
 
 def real_source_files():
-    """Existing .py files under keyholder/ (empty until workers land)."""
-    pkg = BUILD_ROOT / "keyholder"
+    """Existing .py files under sealvra/ (empty until workers land)."""
+    pkg = BUILD_ROOT / "sealvra"
     if not pkg.exists():
         return []
     return sorted(pkg.rglob("*.py"))

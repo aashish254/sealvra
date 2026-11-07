@@ -1,7 +1,7 @@
-"""W13 — platform abstraction for Keyholder v0.1.
+"""W13 — platform abstraction for Sealvra v0.1.
 
 Normative sources: CONTRACT.md §5 (storage tiers) and §10 (Tier A/B),
-KEYHOLDER-PLAN-V3-FINALCHECK.md §1D (vault/keychain) and §1N (parity),
+SEALVRA-PLAN-V3-FINALCHECK.md §1D (vault/keychain) and §1N (parity),
 finalcheck/f14-parity-audit.md. v3 wins over v1/v2; deleted passages
 are never built — in particular:
 
@@ -10,7 +10,7 @@ are never built — in particular:
   such detector would be fake. Destructive approvals carry a
   universal standing reminder instead (v3 §1N N-N7, f14 F-08).
 * No "Hello step-up addresses DPAPI" claim. Hello/polkit gestures
-  gate Keyholder-mediated use only (v3 §1N N-N1, f14 F-01).
+  gate Sealvra-mediated use only (v3 §1N N-N1, f14 F-01).
 * X11 destructive and key-lifecycle approvals are REFUSED, not
   polkit-password-plus-rate-limit (v3 §1N N-N2, f14 F-02).
 * Windows password approval is NOT boolean-only by API design:
@@ -39,7 +39,7 @@ Scope of THIS module (honest boundary):
   polkit agent actually offered), never a presumed one.
 
 Tier A vs Tier B (CONTRACT §10), stated for every control below:
-  Tier A = interface-bound agent (acts only through Keyholder).
+  Tier A = interface-bound agent (acts only through Sealvra).
   Tier B = shell-capable same-user agent (can run arbitrary
   same-user code, read same-user files/stores, inject input
   where the platform allows it).
@@ -62,7 +62,8 @@ What CANNOT be proven on Linux (for W18 docs — see also
   nothing about another platform's native behaviour; mocked-
   platform tests are labelled as such in the test file.
 
-Working title is Keyholder. This module does NOT rename anything
+Product name is Sealvra (owner-decided; the v0.2 Phase 3 pass renamed
+this package from keyholder). This module does NOT rename anything
 to Keyseal. No real keys are used anywhere here; tests use only
 TEST-ONLY fake values. No network, no push, no provider contact.
 """
@@ -117,8 +118,8 @@ SUPPORTED_PLATFORMS = ("darwin", "win32", "linux")
 HONEST_PARITY_STATEMENT = (
     "On macOS, stored keys are additionally gated by per-application "
     "Keychain ACLs. On Windows and Linux, stored keys are readable by "
-    "any process running as your user. Keyholder's approval tiers, "
-    "Hello/polkit gestures, and kill switch control what Keyholder "
+    "any process running as your user. Sealvra's approval tiers, "
+    "Hello/polkit gestures, and kill switch control what Sealvra "
     "itself does with your keys; they do not stop another program "
     "running as you from reading them directly from Credential "
     "Manager or your unlocked keyring. If that threat matters to "
@@ -128,7 +129,7 @@ HONEST_PARITY_STATEMENT = (
 
 STANDING_DESTRUCTIVE_REMINDER = (
     "Close screen sharing before approving destructive actions. "
-    "Keyholder cannot detect whether another app is capturing the "
+    "Sealvra cannot detect whether another app is capturing the "
     "screen, so this reminder is shown on every destructive approval."
 )
 
@@ -175,10 +176,10 @@ class PlatformUnsupportedError(ValueError):
 class StorageTierInfo:
     """Storage tier, distinct from the approval tier (v3 N-N1).
 
-    Tier A: the tier describes what Keyholder's own unwrap path does.
+    Tier A: the tier describes what Sealvra's own unwrap path does.
     Tier B: only S1 (macOS Keychain per-app ACL) narrows same-user
     direct reads. S2/S3/S0 do NOT survive Tier B — a same-user
-    process reads the store directly without any Keyholder gate.
+    process reads the store directly without any Sealvra gate.
     """
 
     tier: str  # S1 | S2 | S3 | S0
@@ -186,7 +187,7 @@ class StorageTierInfo:
     platform: str
     same_user_direct_read: bool
     description: str
-    tier_a: str = "Tier A: Keyholder-mediated unwrap is gated as described."
+    tier_a: str = "Tier A: Sealvra-mediated unwrap is gated as described."
     tier_b: str = (
         "Tier B: survives only for S1 (macOS Keychain ACL). "
         "S2/S3/S0 are readable by any same-user process directly."
@@ -197,7 +198,7 @@ class StorageTierInfo:
 class ApprovalTierInfo:
     """Approval tier WITH mechanism — never an unqualified tier (f14 F-17).
 
-    Tier A: the tier gates what Keyholder does on this approval.
+    Tier A: the tier gates what Sealvra does on this approval.
     Tier B: a broker-window click (T3) does not survive Tier B on
     X11 (XTEST injection) or on Windows (same-integrity SendInput);
     a system gesture (T1/T2) survives Tier B only in the sense that
@@ -210,7 +211,7 @@ class ApprovalTierInfo:
     platform: str
     boolean_only: bool  # True if the password/PIN never reaches app memory
     description: str
-    tier_a: str = "Tier A: gates Keyholder-mediated approval as described."
+    tier_a: str = "Tier A: gates Sealvra-mediated approval as described."
     tier_b: str = (
         "Tier B: system-gesture booleans cannot be forged by a fake "
         "dialog; typed strings can be harvested by a lookalike dialog; "
@@ -234,7 +235,7 @@ class ApprovalDecision:
 class PolkitStatus:
     """Polkit state with action-installed kept separate from agent-running.
 
-    Tier A: these fields gate Keyholder's own approval path.
+    Tier A: these fields gate Sealvra's own approval path.
     Tier B: polkit does not gate direct Secret Service reads at all;
     a correct polkit decision still leaves S3 storage readable by
     any same-user process while unlocked.
@@ -265,7 +266,7 @@ def current_platform(platform: str | None = None) -> str:
     if value.startswith("linux"):
         return "linux"
     raise PlatformUnsupportedError(
-        f"unsupported platform for Keyholder approval/storage: {value!r} "
+        f"unsupported platform for Sealvra approval/storage: {value!r} "
         f"(supported: darwin, win32, linux) [KH-3001]"
     )
 
@@ -313,7 +314,7 @@ def storage_tier(
             same_user_direct_read=False,
             description=(
                 "Per-application Keychain ACL (S1). A same-user process "
-                "that is not Keyholder cannot read Keyholder's items "
+                "that is not Sealvra cannot read Sealvra's items "
                 "without a system prompt; user-presence-gated items "
                 "cannot be read silently at all."
             ),
@@ -329,7 +330,7 @@ def storage_tier(
                 "account, not the application: any same-user process "
                 "can call CryptUnprotectData with no prompt and no "
                 "per-app isolation, and CredRead has no per-app ACL. "
-                "Hello step-up gates Keyholder-mediated use only."
+                "Hello step-up gates Sealvra-mediated use only."
             ),
         )
     # linux
@@ -360,7 +361,7 @@ def approval_tier(
     fingerprint — f14 F-16). Unknown mechanisms raise rather than
     falling through to a weaker tier silently.
 
-    Tier A: tiers measure Keyholder's gates, not platform storage.
+    Tier A: tiers measure Sealvra's gates, not platform storage.
     Tier B: see ApprovalTierInfo.tier_b; T1-pin and T2-windows-
     password are weaker than their tier letters suggest, which is
     exactly why the mechanism must be displayed (f14 F-17).
@@ -521,7 +522,7 @@ def detect_display_backend(
 def is_x11_backend(backend_info: dict | str) -> bool:
     """True for x11, xwayland, and ambiguous backends (fail closed).
 
-    Tier A: X11-row enforcement is a Keyholder gate.
+    Tier A: X11-row enforcement is a Sealvra gate.
     Tier B: X11/XWayland input is observable and forgeable by any
     same-user process (keylogging, XTEST), which is why the row
     refuses destructive approvals rather than rate-limiting them.
@@ -545,7 +546,7 @@ def approval_allowed_for_session_class(
     window click still never approves a destructive call, and any
     approval on X11 must show the injectable badge.
 
-    Tier A: this is a Keyholder gate on its own approvals.
+    Tier A: this is a Sealvra gate on its own approvals.
     Tier B: refusal is the only honest X11 answer because a
     keylogger captures the polkit/login password and XTEST forges
     the click; a rate limit cannot repair a single approval.
@@ -585,7 +586,7 @@ def approval_allowed_for_session_class(
 def broker_window_can_approve(session_class: str) -> bool:
     """A broker-window click may present or deny, NEVER approve destructive.
 
-    Tier A: this gate binds Keyholder's own approval UI.
+    Tier A: this gate binds Sealvra's own approval UI.
     Tier B: on Windows same-integrity SendInput and on X11 XTEST
     forge broker-window clicks, so a destructive click-approval
     would be forgeable on both platforms (f14 F-13, v3 N-N9).
@@ -598,7 +599,7 @@ def broker_window_can_approve(session_class: str) -> bool:
 def macos_keychain_design(*, strict_biometry: bool = False) -> dict:
     """macOS Keychain design (design specification, not a native call).
 
-    Tier A: per-item ACLs gate Keyholder's own fetches.
+    Tier A: per-item ACLs gate Sealvra's own fetches.
     Tier B: Keychain access groups DO survive Tier B — this is the
     only platform where stored keys are narrowed against same-user
     processes. A single vault-wide KEK item is DELETED design (v3
@@ -615,7 +616,7 @@ def macos_keychain_design(*, strict_biometry: bool = False) -> dict:
     return {
         "items": "one Keychain item per stored key (no vault-wide KEK item)",
         "access_group_gating": (
-            "Keyholder's access group only; other same-user apps "
+            "Sealvra's access group only; other same-user apps "
             "cannot read items without a system prompt"
         ),
         "access_control_flags": flags,
@@ -639,7 +640,7 @@ def macos_keychain_design(*, strict_biometry: bool = False) -> dict:
             "for identical-scope re-approval."
         ),
         "storage_tier": "S1",
-        "tier_a": "Tier A: per-item ACLs gate Keyholder fetches.",
+        "tier_a": "Tier A: per-item ACLs gate Sealvra fetches.",
         "tier_b": "Tier B: Keychain access groups survive Tier B.",
     }
 
@@ -647,7 +648,7 @@ def macos_keychain_design(*, strict_biometry: bool = False) -> dict:
 def windows_verifier_helper_design() -> dict:
     """Design for the isolated Windows password-verifier helper.
 
-    Tier A: the helper gates Keyholder's own password approvals.
+    Tier A: the helper gates Sealvra's own password approvals.
     Tier B: isolating the password in a helper process means a
     broker compromise does not yield the account password; it does
     NOT change S2 storage (Credential Manager remains directly
@@ -674,7 +675,7 @@ def windows_verifier_helper_design() -> dict:
             "with that warning. Do NOT display them as equivalent "
             "to boolean-only T2."
         ),
-        "tier_a": "Tier A: helper gates Keyholder password approvals.",
+        "tier_a": "Tier A: helper gates Sealvra password approvals.",
         "tier_b": (
             "Tier B: helper isolation narrows broker-compromise blast "
             "radius; it does not narrow S2 direct store reads."
@@ -694,7 +695,7 @@ def windows_password_tier(*, with_helper: bool) -> ApprovalTierInfo:
 def hello_tier(*, kind: str) -> ApprovalTierInfo:
     """Windows Hello tier: 'biometric' and 'pin' are different tiers.
 
-    Tier A: both gate Keyholder approvals.
+    Tier A: both gate Sealvra approvals.
     Tier B: biometric booleans cannot be forged by a fake dialog;
     a PIN string can be harvested by a lookalike dialog, and a PIN
     typed into a remote session is at most T2 (see
@@ -751,8 +752,8 @@ def evaluate_polkit(status: PolkitStatus) -> ApprovalDecision:
     crash fails closed to T2 password, never to T3 for reserved
     actions and never to a silent T1 claim.
 
-    Tier A: gates Keyholder's polkit approvals.
-    Tier B: polkit gates Keyholder only; unlocked Secret Service
+    Tier A: gates Sealvra's polkit approvals.
+    Tier B: polkit gates Sealvra only; unlocked Secret Service
     items remain directly readable by same-user processes.
     """
     if not status.action_installed:
@@ -824,7 +825,7 @@ def check_keyring_migration(
 ) -> dict:
     """Validate a move from an auto-unlocked to a locked collection.
 
-    Tier A: gates Keyholder's destructive mint posture.
+    Tier A: gates Sealvra's destructive mint posture.
     Tier B: even a correct migration only narrows the window — while
     the collection is unlocked for a session, any same-user process
     reads every item in it. Posture wording must say "narrows the
@@ -865,7 +866,7 @@ def check_keyring_migration(
 def keyring_lock_posture(*, locked_at_mint: bool) -> dict:
     """Lock-state posture read at mint time, plus explicit lock rules.
 
-    Tier A: Keyholder locks its collection explicitly on session
+    Tier A: Sealvra locks its collection explicitly on session
     end, screen lock, and suspend (never assumed from the desktop).
     Tier B: GNOME Keyring is not locked on user switching, and
     lock-on-suspend is configuration-dependent — neither may be
@@ -886,7 +887,7 @@ def remote_access_coverage() -> dict:
     """Remote-access coverage table (v3 N-N4, f14 F-09).
 
     Tier A: RDP detection (SM_REMOTESESSION on Windows) gates
-    Keyholder's remote badge/row.
+    Sealvra's remote badge/row.
     Tier B: undetected remote tools present a remote user as local;
     an approval through one is indistinguishable from a local
     approval. Remote state is re-probed at every approval, not at
@@ -898,7 +899,7 @@ def remote_access_coverage() -> dict:
         "residual": (
             "Do not approve destructive actions while any "
             "remote-access tool is running; undetected tools look "
-            "local to Keyholder."
+            "local to Sealvra."
         ),
     }
 
@@ -1097,7 +1098,7 @@ def windows_tpm_domain_posture(
 def vault_unlock_password_entry(*, backend_info: dict | str) -> dict:
     """Bounded carve-out for password-mode vault-unlock entry (f14 F-14).
 
-    The rule "Keyholder never implements its own password prompt"
+    The rule "Sealvra never implements its own password prompt"
     is unsatisfiable for password mode: polkit/LAContext/Hello return
     booleans, never a passphrase, so vault-unlock passphrase entry
     MUST be a broker-drawn field. The carve-out covers vault unlock
@@ -1135,7 +1136,7 @@ def grace_window_valid(
     sessions, invalidated by any session-type change (local→RDP,
     Wayland→X11/XWayland, seat change) and by screen lock, and must
     record the original gesture's timestamp in the audit entry.
-    Tier A: a Keyholder-side reuse rule. Tier B: a grace window
+    Tier A: a Sealvra-side reuse rule. Tier B: a grace window
     never narrows direct store reads.
     """
     if session_class in ("destructive", "key_lifecycle"):
@@ -1195,7 +1196,7 @@ def posture(
     callers enforce cross-session denial by comparing this record's
     backend with the session's mint backend (f14 F-20).
 
-    Tier A: this record gates/audits Keyholder approvals.
+    Tier A: this record gates/audits Sealvra approvals.
     Tier B: it does not, by itself, stop direct store reads on
     Windows/Linux — the parity statement says so in the record.
     """
@@ -1225,12 +1226,12 @@ def posture(
         "honest_parity_statement": HONEST_PARITY_STATEMENT,
         "tier_a": (
             "Tier A (interface-bound agent): storage and approval "
-            "tiers above gate what Keyholder itself does."
+            "tiers above gate what Sealvra itself does."
         ),
         "tier_b": (
             "Tier B (shell-capable same-user agent): only macOS S1 "
             "Keychain ACLs narrow direct reads. On Windows/Linux, "
-            "tiers control Keyholder-mediated use only."
+            "tiers control Sealvra-mediated use only."
         ),
     }
     if plat == "win32" and tpm is not None:
@@ -1297,13 +1298,13 @@ def tier_scope(control: str) -> dict:
         "pairing_token": (
             "Does NOT survive Tier B. Never cite as Tier B evidence."),
         "hello_step_up_windows_linux": (
-            "Tier A only for storage: gates Keyholder-mediated use; "
+            "Tier A only for storage: gates Sealvra-mediated use; "
             "does NOT stop direct Credential Manager / keyring reads."),
         "polkit_gesture": (
-            "Tier A only for storage: gates Keyholder-mediated use; "
+            "Tier A only for storage: gates Sealvra-mediated use; "
             "does NOT stop direct keyring reads."),
         "kill_switch": (
-            "Tier A only: kills Keyholder sessions; does not recall "
+            "Tier A only: kills Sealvra sessions; does not recall "
             "already-forwarded calls and does not revoke direct "
             "store reads."),
     }

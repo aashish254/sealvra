@@ -276,11 +276,11 @@ def main(argv=None):
                 ),
                 "properties": [
                     {
-                        "name": "keyholder:dependency-scope",
+                        "name": "sealvra:dependency-scope",
                         "value": "direct" if name in reqs else "transitive",
                     },
                     {
-                        "name": "keyholder:pinned-in-requirements",
+                        "name": "sealvra:pinned-in-requirements",
                         "value": "true" if name in reqs else "false",
                     },
                 ],
@@ -307,13 +307,13 @@ def main(argv=None):
         "serialNumber": f"urn:uuid:{uuid.uuid5(uuid.NAMESPACE_URL, seed)}",
         "version": 1,
         "metadata": {
-            "component": {"type": "application", "name": "keyholder", "version": "0.2"},
+            "component": {"type": "application", "name": "sealvra", "version": "0.2"},
             "properties": [
-                {"name": "keyholder:generated-by", "value": "scripts/sbom.py"},
-                {"name": "keyholder:generated-from", "value": "requirements.txt + installed environment + source tree"},
-                {"name": "keyholder:interpreter", "value": python},
+                {"name": "sealvra:generated-by", "value": "scripts/sbom.py"},
+                {"name": "sealvra:generated-from", "value": "requirements.txt + installed environment + source tree"},
+                {"name": "sealvra:interpreter", "value": python},
                 {
-                    "name": "keyholder:honesty-note",
+                    "name": "sealvra:honesty-note",
                     "value": (
                         "Inventory only. This SBOM does not prove a dependency "
                         "is safe, that a built artifact matches this source, "
@@ -326,9 +326,9 @@ def main(argv=None):
         },
         "components": components,
         "properties": [
-            {"name": "keyholder:source-files", "value": str(len(files))},
-            {"name": "keyholder:direct-dependencies", "value": str(len(direct))},
-            {"name": "keyholder:transitive-dependencies", "value": str(len(transitive))},
+            {"name": "sealvra:source-files", "value": str(len(files))},
+            {"name": "sealvra:direct-dependencies", "value": str(len(direct))},
+            {"name": "sealvra:transitive-dependencies", "value": str(len(transitive))},
         ],
         "source_files": files,
         "build_time": build_time_inventory(root, python),

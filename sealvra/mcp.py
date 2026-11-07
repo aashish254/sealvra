@@ -1,4 +1,4 @@
-"""Keyholder W12 — MCP server (loopback only).
+"""Sealvra W12 — MCP server (loopback only).
 
 Corrected to the 2026-07-28 MCP spec revision (v3 N-K7):
 - Streamable HTTP is the standard; HTTP+SSE is deprecated.
@@ -266,8 +266,8 @@ class SpawnTokenStore:
 # The ONLY tools this server exposes. Anything else, including
 # "http_call", "http_request", "fetch", "shell", "exec", is refused.
 ALLOWED_TOOLS = (
-    "keyholder.proxy_request",
-    "keyholder.session_status",
+    "sealvra.proxy_request",
+    "sealvra.session_status",
 )
 
 FORBIDDEN_TOOL_NAMES = ("http_call", "http_request", "fetch", "shell",
@@ -291,8 +291,16 @@ def call_tool(name: str, arguments: dict, daemon_up: bool,
     # Tool bodies are implemented by the broker (W01/W04). This module
     # proves the gate: only allowlisted tools reach the broker, with a
     # bearer, from loopback. It never touches a raw key.
+    #
+    # Phase 2 honesty label: nothing in this build dispatches to a
+    # broker. `sealvra.mcp` is not imported by the daemon or the CLI,
+    # so no MCP server is served here; this return value is the gate
+    # decision, not evidence that a tool ran. Do not read `accepted`
+    # as a call having happened.
     return {"tool": name, "accepted": True,
-            "note": "dispatched to broker; raw keys are never used here"}
+            "note": ("gate only: this build serves no MCP server, so the "
+                     "tool was checked, not dispatched; raw keys are never "
+                     "used here")}
 
 
 # ---------------------------------------------------------------------------
@@ -302,7 +310,7 @@ def call_tool(name: str, arguments: dict, daemon_up: bool,
 def bearer_config_entry(reference: str) -> dict:
     """Build an MCP config entry for a bearer *reference*, not a value.
 
-    ``reference`` must look like ``${input:keyholder-bearer}`` (VS Code /
+    ``reference`` must look like ``${input:sealvra-bearer}`` (VS Code /
     Cursor secret-storage indirection). A literal bearer value is
     refused here — writing one into a settings file is exactly the
     B9/B12 leak (plaintext in a synced settings file).
@@ -331,10 +339,10 @@ def check_sync_scope(config_path: str, synced_paths: list) -> str | None:
 
 
 def check_team_distribution(config_scope: str) -> None:
-    """Never distribute a Keyholder MCP entry via Team MCP (f10 B8/B11)."""
+    """Never distribute a Sealvra MCP entry via Team MCP (f10 B8/B11)."""
     if config_scope.lower() in ("team", "shared", "organisation", "organization"):
         raise McpRefusal(
-            "refusing to write a Keyholder MCP entry into team/shared "
+            "refusing to write a Sealvra MCP entry into team/shared "
             "config: team servers reach the whole team and Cloud Agents")
 
 

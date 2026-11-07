@@ -1,4 +1,4 @@
-"""Master test registry + release-gate machinery for Keyholder v0.2 (W08).
+"""Master test registry + release-gate machinery for Sealvra v0.2 (W08).
 
 Normative sources: plan v3 SS4A G0-16 and final-check audit f17
 (P-02 exception registry, P-05 master registry, P-06 artifact binding,
@@ -73,14 +73,20 @@ Honest limits of this machinery (read before claiming a gate passed)
   record has been appointed (that appointment is an OWNER decision,
   see the README Gate G0 table). Until one exists, solo-phase gates
   are self-attested, not independently verified (f17 residual risk 2).
-- Commit binding is UNBOUND in this tree: there is no ``.git``
-  repository here, so :func:`detect_commit` returns ``None`` and any
-  release-gate evaluation with no expected commit FAILS with
-  "commit unknown". That is the correct fail-closed behaviour, not a
-  bug to work around by inventing a commit hash. The repo-dependent
-  part (a real repo, a real commit, CI fetching the artifact and
-  comparing hashes at sign time) can only close once a repo exists
-  and the user approves it -- it is recorded OPEN, never closed here.
+- Commit binding is UNPROVEN in this tree, not because there is no
+  repository but because the tested commit is not on the remote.
+  ``.git`` exists here, so :func:`detect_commit` returns the local
+  HEAD; ``origin/main`` is the initial commit, whose tree is one file
+  (``README.md``), and this working tree carries uncommitted paths.
+  An artifact bound to a commit nobody else can fetch is not
+  evidence. What stays fail-closed either way: a release-gate
+  evaluation with no expected commit FAILS with "commit unknown",
+  which is the correct behaviour and never a bug to work around by
+  inventing a commit hash. The repo-dependent part (a real repo, a
+  real commit, CI fetching the artifact and comparing hashes at sign
+  time) closes only after the owner approves the commit and push and
+  the gate is re-run against the pushed commit -- it is recorded
+  OPEN, never closed here.
 - CI wiring is W20-owned: ``.github/workflows/ci.yml`` does not yet
   call :func:`evaluate_release_gate` or ``scripts/grep_gates.py``.
   The gate functions are implemented and tested here; the workflow
@@ -261,10 +267,11 @@ REGISTRY_IDS = (
     'test_approver_wiring.TestTestApproverGuard.test_flagged_test_approver_without_marker_raises',
     'test_approver_wiring.TestTestApproverGuard.test_test_approver_with_marker_forwards',
     'test_approver_wiring.TestTestApproverGuard.test_test_approver_without_marker_raises',
-    'test_daemon_ipc.DaemonIPCTestCase.test_audit_verify_honestly_unavailable_from_daemon',
+    'test_daemon_ipc.DaemonIPCTestCase.test_audit_verify_runs_the_real_verifier_over_ipc',
     'test_daemon_ipc.DaemonIPCTestCase.test_cli_start_status_stop_across_invocations',
     'test_daemon_ipc.DaemonIPCTestCase.test_create_list_kill_from_other_processes_token_once',
     'test_daemon_ipc.DaemonIPCTestCase.test_daemon_death_orphans_workers_and_stale_restart',
+    'test_daemon_ipc.DaemonIPCTestCase.test_sessions_create_refuses_a_key_the_vault_does_not_hold',
     'test_daemon_ipc.DaemonIPCTestCase.test_socket_permissions_and_doctor_tier_b',
     'test_daemon_ipc.DaemonIPCTestCase.test_stop_kills_workers_and_restart_has_no_sessions',
     'test_e2e.MockProviderTests.test_gemini_allowed_calls_succeed_when_reached',
@@ -11653,11 +11660,17 @@ REGISTRY_IDS = (
     'test_w10_cli.TestImportAndRotation.test_add_never_pasted_has_no_rotation_gate',
     'test_w10_cli.TestImportAndRotation.test_add_pasted_yes_forces_rotation_gate',
     'test_w10_cli.TestImportAndRotation.test_add_reprompts_on_invalid_answer',
+    'test_w10_cli.TestImportAndRotation.test_collision_answer_yes_keeps_the_shared_name',
     'test_w10_cli.TestImportAndRotation.test_delete_requires_typed_confirmation',
+    'test_w10_cli.TestImportAndRotation.test_import_warns_on_display_name_collision',
     'test_w10_cli.TestImportAndRotation.test_list_and_show_carry_permanent_warning_until_rotation',
     'test_w10_cli.TestImportAndRotation.test_rotate_clears_gate_and_session_then_starts',
     'test_w10_cli.TestImportAndRotation.test_rotation_gate_blocks_first_session',
     'test_w10_cli.TestImportAndRotation.test_secret_never_appears_in_list_or_show_output',
+    'test_w10_cli.TestMarkCompromised.test_mark_compromised_kills_sessions_and_blocks_new_ones',
+    'test_w10_cli.TestMarkCompromised.test_mark_compromised_still_blocks_the_key_when_kill_path_is_unavailable',
+    'test_w10_cli.TestMarkCompromised.test_notify_is_silent_off_macos',
+    'test_w10_cli.TestMarkCompromised.test_notify_passes_user_text_as_data_never_as_script_source',
     'test_w10_cli.TestProveIsolation.test_broker_reported_path',
     'test_w10_cli.TestProveIsolation.test_failed_proof_is_never_a_routine_denial',
     'test_w10_cli.TestProveIsolation.test_prove_isolation_without_broker_fails_closed',
@@ -11710,8 +11723,10 @@ REGISTRY_IDS = (
     'test_w11_gui.TestKillWiring.test_no_web_dashboard_in_module',
     'test_w11_gui.TestPseudonymOnlyRendering.test_audit_is_pseudonym_only',
     'test_w11_gui.TestPseudonymOnlyRendering.test_connect_session_labelled_host_only',
+    'test_w11_gui.TestPseudonymOnlyRendering.test_fingerprint_never_in_a_shared_table',
     'test_w11_gui.TestPseudonymOnlyRendering.test_fingerprint_truncated_to_12_in_list',
     'test_w11_gui.TestPseudonymOnlyRendering.test_isolation_card_on_every_session_view',
+    'test_w11_gui.TestPseudonymOnlyRendering.test_key_detail_carries_the_reference_a_terminal_needs',
     'test_w11_gui.TestPseudonymOnlyRendering.test_key_list_never_shows_labels',
     'test_w11_gui.TestPseudonymOnlyRendering.test_label_only_in_owning_detail_pane',
     'test_w11_gui.TestPseudonymOnlyRendering.test_no_secret_or_token_in_any_rendered_string',
@@ -12185,7 +12200,7 @@ class GateArtifact:
     ``commit`` is the tested commit hash (never invented: use
     :func:`detect_commit`, which returns None when no repo exists).
     ``build_hash`` is the tested build's hash with ``build_hash_kind``
-    saying what was hashed ('pyz' for dist/keyholder.pyz, 'source'
+    saying what was hashed ('pyz' for dist/sealvra.pyz, 'source'
     for the source tree). ``verdict`` must be 'pass'.
     """
 
@@ -12248,19 +12263,19 @@ def detect_commit(root: Path | None = None) -> str | None:
 def compute_build_hash(root: Path | None = None) -> tuple:
     """Hash the shipped build. Returns (hexdigest, kind).
 
-    If ``dist/keyholder.pyz`` exists it is the shipped artifact and
+    If ``dist/sealvra.pyz`` exists it is the shipped artifact and
     its SHA-256 is the build hash (kind 'pyz'). Otherwise the hash
-    covers the source tree (``keyholder/*.py`` + ``packs/*.json``,
+    covers the source tree (``sealvra/*.py`` + ``packs/*.json``,
     excluding ``__pycache__``) so a source-only gate artifact is
     still bound to exact bytes, not a filename (kind 'source').
     """
     root = Path(root) if root is not None else BUILD_ROOT
-    pyz = root / "dist" / "keyholder.pyz"
+    pyz = root / "dist" / "sealvra.pyz"
     if pyz.exists():
         return hashlib.sha256(pyz.read_bytes()).hexdigest(), "pyz"
     digest = hashlib.sha256()
     files = sorted(
-        [p for p in (root / "keyholder").rglob("*.py") if "__pycache__" not in p.parts]
+        [p for p in (root / "sealvra").rglob("*.py") if "__pycache__" not in p.parts]
         + [p for p in (root / "packs").glob("*.json")]
     )
     for path in files:

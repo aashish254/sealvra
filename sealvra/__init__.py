@@ -1,6 +1,7 @@
-"""Keyholder v0.1 — personal edition, local-only, no sync ever.
+"""Sealvra v0.1 — personal edition, local-only, no sync ever.
 
-Working title Keyholder, command ``keyholder``. This package is the
+Product name Sealvra, command ``sealvra`` (the name is the owner-confirmed
+one; ``keyholder`` was retired by the v0.2 Phase 3 rename pass). This package is the
 command-line surface (W10). It never holds a long-lived key longer than
 the transient moment of import/rotation, never prints a key value, and
 never offers a path to display a stored key again.

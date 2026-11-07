@@ -1,14 +1,18 @@
-# Keyholder v0.2 (draft) — security model
+# Sealvra v0.2 (draft) — security model
 
 > **v0.2 DRAFT.** Stated from `CONTRACT.md` and plan v3 §1A/§1N,
-> amended for the v0.2 slices measured 2026-10-28 (daemon IPC,
-> real-approver wiring, pack signing, git helper + wrapper).
-> The CLI, proxy, and audit modules now exist; the joined
-> CLI → daemon → proxy path is still unproven (CLI sessions are
-> not yet on daemon IPC — see the README limitation 12), so
-> nothing here is an end-to-end verification of that path.
-> Tier labels follow v3: a control is only ever claimed for the
-> tier it actually holds against. The egress sections below
+> amended for the v0.2 slices measured 2026-10-28 on Linux and
+> re-measured 2026-10-29 on macOS (daemon IPC, real-approver wiring,
+> pack signing, git helper + wrapper).
+> The CLI, proxy, and audit modules exist, and the joined
+> CLI → daemon → proxy → vault path is now proven end-to-end against
+> built code (CLI-created session, PoP-signed proxied calls, kill,
+> audit verify — `tests/test_e2e.py` Layer B, 14/14 on macOS with
+> TEST-ONLY keys and loopback mocks). It is verified for that path
+> only: no real provider was contacted and no native OS approval
+> gesture exists, so a production level-3 call still denies
+> fail-closed. Tier labels follow v3: a control is only ever claimed
+> for the tier it actually holds against. The egress sections below
 > ("Egress and privacy") are W17's and are not rewritten here.
 
 ## The two agent tiers — stated per control, always
@@ -20,7 +24,7 @@
   process, so Tier B is in scope — it is not an edge case.
 
 Controls that survive Tier B: macOS keychain access groups (the
-operating system, not Keyholder, enforces which application may read
+operating system, not Sealvra, enforces which application may read
 a keychain item), OS-rendered approval prompts, and worker sandbox
 profiles. Controls that do **not** survive Tier B and must never be
 cited as Tier B evidence: file permissions (0600/0700), file-stored
@@ -28,7 +32,7 @@ control tokens, peer-credential checks, and pairing tokens. A
 same-user process can read any file your user can read.
 
 **Out of scope by design:** same-user malware and a compromised OS
-account. Keyholder defends against a compromised *agent*, not a
+account. Sealvra defends against a compromised *agent*, not a
 compromised machine. Nothing in this doc set claims otherwise.
 
 ## Per-control tier table (specified behaviour)
@@ -47,31 +51,39 @@ compromised machine. Nothing in this doc set claims otherwise.
 | Broker-window clicks | Present/deny only | Present/deny only | A broker-window click may present or deny a destructive call, never approve it, on all platforms |
 | X11 destructive sessions | Refused | Refused | Refused outright: keyloggers capture the approval password and injected input forges clicks |
 | CONNECT host-only labelling | Yes | Labelling only | In a tunnel, method/path/body policy is unenforceable for any tier |
-| Audit-before-forward, hash-chained log, fail-closed on audit failure | Yes | Broker-path only | Calls outside the proxy are not logged by Keyholder at all |
+| Audit-before-forward, hash-chained log, fail-closed on audit failure | Yes | Broker-path only | Calls outside the proxy are not logged by Sealvra at all |
 | Kill (deny-list ≤1 s, teardown ≤5 s) | Yes | Broker-path only | Already-forwarded calls run to completion; provider-side artifacts may outlive kill |
 | Git-push gating (wrapper-run pushes only) | Yes, wrapper path | Broker-path only | v0.2 helper + wrapper log and gate wrapper-run push/pull/fetch and deny force-push/ref-deletion without approval; direct-client pushes still bypass — see adapters doc (git section, W05) |
 | Daemon IPC authentication (v0.2) | Yes (other users excluded) | No | Unix socket 0600 in a 0700 dir, SO_PEERCRED peer-UID (loopback-only on Windows): same-UID only, never cited as Tier B separation; no file-stored control token |
 | Provider-pack signature verification (v0.2) | Yes | Yes, for pack trust | Loader verifies content hash AND Ed25519 signature against a trusted, non-revoked key; failing packs refused, never fallen back to unsigned/hash-only; missing trust/revocation files also refuse |
-| Real-approver wiring (v0.2) | Yes, proxy path | Broker-path only | Production proxy approve callable is the real broker-owned approver; test approvers refused without the `KEYHOLDER_TEST_APPROVER` harness marker; joined CLI → daemon → proxy approval still unproven (CLI sessions not on IPC) |
+| Real-approver wiring (v0.2) | Yes, proxy path | Broker-path only | Production proxy approve callable is the real broker-owned approver; test approvers refused without the `SEALVRA_TEST_APPROVER` harness marker; joined CLI → daemon → proxy approval proven on macOS with the harness approver (approved level-3 call forwarded, key injected, chain intact) — the production OS gesture still does not exist, so production level-3 denies |
+| Adapter hard-deny floor (v0.2) | Yes | Broker-path only | Composition root adds `sealvra/github.py::classify` level-4 refusals over a pack **allow** only (deny-only, never widens); path and method rules, not body-dependent; GitHub only, no Gemini floor (owner decision 2026-10-29: the floor stays in `sealvra/runtime.py` and the packs are not re-signed — `pk-a584d783bdcd5feb` is rotate-only, so re-signing would break the trust root for no gain; layering stated in CONTRACT §6); inside the broker path, so a Tier B agent that never uses the proxy is untouched |
 
 ## The honest parity statement (verbatim substance, v3 §1N)
 
 "On macOS, keys are additionally gated by per-application Keychain
 ACLs. On Windows/Linux, keys are readable by any process running as
-your user. Tiers control what Keyholder itself does, not direct store
+your user. Tiers control what Sealvra itself does, not direct store
 reads."
 
 A posture card therefore carries two separate things that must not be
-confused: an **approval tier** (what Keyholder's gates do) and a
+confused: an **approval tier** (what Sealvra's gates do) and a
 **storage tier** (S1 per-app ACL / S2 user-scoped / S3
 session-scoped-unlocked / S0 password-file). A high approval tier on
 a user-scoped store does not make the store application-scoped.
 
 ## What the probe can and cannot prove
 
-`keyholder prove-isolation` runs checks through the broker path. A
+`sealvra prove-isolation` runs checks through the broker path. A
 passing probe shows that broker-path requests are gated as specified.
-It does **not** prove that a malicious agent routed all of its
+**On this build a probe cannot pass and no pass has ever been
+recorded** (measured 2026-10-31: exit 3, KH-3002 — the interfaces the
+command specifies, `sessions.create_ephemeral_session()` and a
+module-level broker `validate_token`, do not exist; see the measured
+note in `sealvra/cli.py`). The command fails closed, which is the
+correct behaviour, but it means session separation is UNPROVEN rather
+than verified, and nothing in this document should be read as claiming
+otherwise. It does **not** prove that a malicious agent routed all of its
 traffic through the broker: an agent that calls a provider directly,
 skipping the proxy, generates no broker record at all, and no probe
 of the broker path can attest to traffic it never saw. A failed probe
@@ -81,7 +93,7 @@ about the agent.
 
 ## Data theft vs key theft
 
-Keyholder stops *key* theft and bounds data exposure. It does not
+Sealvra stops *key* theft and bounds data exposure. It does not
 stop data exfiltration through an approved scope: an approved read
 scope is a data-exfiltration scope, and kill cannot retract prompts
 or calls already sent. Additional bounds in v3: per-session read-byte
@@ -101,7 +113,7 @@ machine or OS account (out of scope by design); data exfiltration
 through an approved scope (bounded, not prevented); already-forwarded
 calls surviving kill; provider-side artifacts surviving kill unless
 inventoried; traffic shape and timing surviving encryption; and
-agent-vendor telemetry outside Keyholder's control.
+agent-vendor telemetry outside Sealvra's control.
 
 ## Egress and privacy (v0.2, W17 — re-audit against f11)
 
@@ -112,12 +124,12 @@ chose (key in header) plus unavoidable DNS/SNI hostname metadata,
 and a denied call leaves nothing at all. That sentence is the whole
 claim; it does not cover corporate TLS interception, OS-level
 diagnostic sharing, machine backups, or the agent tool's own vendor
-telemetry, each of which is a separate channel outside Keyholder's
+telemetry, each of which is a separate channel outside Sealvra's
 control and is named below rather than folded into the claim.
 
 ### Update-check payload: version + OS + arch and nothing else
 
-Implemented in `keyholder/cli.py` (`build_update_check_payload`,
+Implemented in `sealvra/cli.py` (`build_update_check_payload`,
 pure, no network call) and pinned by `tests/test_egress.py`:
 
 - Payload keys are exactly `version`, `os`, `arch`. Forbidden and
@@ -210,18 +222,18 @@ sent — rather than sending with known-secret matching skipped.
 it breaks per-report approval. OS crash reporters are a separate
 channel outside this rule: macOS/Windows diagnostic sharing, if
 the user enabled it, uploads product crash data to Apple/
-Microsoft outside Keyholder's scrubber and approval entirely
+Microsoft outside Sealvra's scrubber and approval entirely
 (f11 F-E3) — users should check those OS settings separately.
 
 Status, honestly split (see `tests/test_egress.py`): the
-primitive in `keyholder/audit.py` (`SecretScrubber`) already
+primitive in `sealvra/audit.py` (`SecretScrubber`) already
 satisfies hash-only storage — it stores 9-char window hashes
 only, never secret values, and detects raw, hex, base64, and
 URL-encoded fragments — and that is proven by test. What is
 **NOT CLOSED** in v0.2, because it lives in modules outside
 the W17 file area and no crash-report sender ships at all: (a)
 no production call site feeds the scrubber at key-add/rotate
-time (no `add_secret` caller exists in `keyholder/` today, and
+time (no `add_secret` caller exists in `sealvra/` today, and
 `AuditLog` defaults to no scrubber), and (b) there is no
 locked-keychain fail-closed gate on any crash path, because
 there is no crash path. The required fix, for the audit/vault

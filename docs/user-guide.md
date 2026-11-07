@@ -1,17 +1,20 @@
-# Keyholder v0.2 (draft) — user guide
+# Sealvra v0.2 (draft) — user guide
 
 > **v0.2 DRAFT.** This guide describes v0.1 behaviour as amended
-> by the v0.2 slices measured 2026-10-28 on this Linux VM
-> (cross-process daemon IPC, real-approver wiring, pack signing,
-> git helper + wrapper). The CLI itself now exists
-> (`python3 -m keyholder --help` exits 0) and the daemon
+> by the v0.2 slices (cross-process daemon IPC, real-approver wiring,
+> pack signing, git helper + wrapper), measured 2026-10-28 on the
+> Linux build VM and re-measured 2026-10-29 on macOS 27.0.1 arm64
+> with Python 3.12.13. The CLI itself exists
+> (`python3 -m sealvra --help` exits 0), the daemon
 > start/status/stop cycle works across CLI invocations with an
-> isolated daemon directory — but the CLI sessions commands are
-> NOT yet routed through daemon IPC, and at the 2026-10-28
-> snapshot `sessions list` fails with KH-1006 (see "Creating a
-> session" below). No step that depends on CLI sessions has been
-> run end-to-end against built code in v0.2; re-verify each such
-> step before release. The git section of `docs/adapters.md`
+> isolated daemon directory, and the CLI sessions commands
+> (`create`/`list`/`kill`/`kill-all`) now route through daemon IPC
+> while a daemon is running, falling back to the process-local
+> session store when none is. That whole flow — CLI → daemon →
+> proxy → mock, with a PoP-signed call, a kill, and an audit verify —
+> is what `tests/test_e2e.py` Layer B runs end-to-end against built
+> code (14/14 pass on macOS 2026-10-29, TEST-ONLY keys, loopback
+> mocks). The git section of `docs/adapters.md`
 > (W05) and the egress sections of `docs/security-model.md`
 > (W17) are owned by other workers and are not rewritten here.
 
@@ -26,21 +29,21 @@ If you need team sharing, stop here — v0.1 has no company edition.
 1. Use Python 3.12. Create a virtual environment in the build root
    and install the two pinned dependencies from `requirements.txt`
    (`cryptography`, `argon2-cffi`). Nothing else is required.
-2. Start the daemon: `keyholder daemon start`. Check it:
-   `keyholder daemon status`. In v0.2 the daemon is a real
+2. Start the daemon: `sealvra daemon start`. Check it:
+   `sealvra daemon status`. In v0.2 the daemon is a real
    separate process speaking newline-delimited JSON over a Unix
    socket (Linux/macOS) or loopback TCP (Windows) in a 0700
-   directory — `$KEYHOLDER_DAEMON_DIR` if set, else
-   `~/.keyholder/daemon` — with a 0600 socket and peer-UID
+   directory — `$SEALVRA_DAEMON_DIR` if set, else
+   `~/.sealvra/daemon` — with a 0600 socket and peer-UID
    authentication. That directory is GLOBAL by default: set a
-   distinct `KEYHOLDER_DAEMON_DIR` per test run or per user
+   distinct `SEALVRA_DAEMON_DIR` per test run or per user
    context, or concurrent runs share one daemon. Daemon death
    means session death: sessions live in daemon memory only and
    are never resurrected on restart. IPC authentication is
    same-UID only and does NOT separate same-user processes
    (Tier B) — see the security model doc; no control token
    pretends otherwise.
-3. Add your first key: `keyholder keys add`. Answer the import
+3. Add your first key: `sealvra keys add`. Answer the import
    question honestly (see below). Prefer platform-keychain mode on
    macOS; on Linux and Windows, understand that storage is
    user-scoped (see the security model doc) before you proceed.
@@ -56,7 +59,7 @@ You will be asked: "Was this key ever pasted anywhere?" Answering
 "don't know" counts as yes. In either case, rotate the key at the
 provider before the first session, and expect a permanent NOT YET
 ROTATED warning on that key until rotation is recorded. A key pasted
-into an agent chat may already live in a vendor cloud; Keyholder
+into an agent chat may already live in a vendor cloud; Sealvra
 cannot undo that, and adding the key here does not make the old
 copies go away.
 
@@ -65,20 +68,25 @@ in global audit entries — those use pseudonyms only.
 
 ## Creating a session
 
-> **v0.2 snapshot warning (2026-10-28, measured):** the CLI
-> sessions commands are not yet routed through daemon IPC.
-> `keyholder sessions list` currently fails with KH-1006
-> ("module 'keyholder.sessions' has no attribute
-> 'list_sessions'"), and the sessions store is in-memory with
-> no persistence. Until that slice lands and is re-measured,
-> treat every step in this section as the specified surface,
-> not as a verified working flow — and treat a session
-> created via the CLI as NOT a daemon session. The daemon-IPC
-> session path itself is proven separately by
+> **Re-measured 2026-10-29 on macOS (was a v0.2 gap).** At the
+> 2026-10-28 snapshot the CLI sessions commands were not on daemon
+> IPC and `sealvra sessions list` failed with KH-1006 ("module
+> 'sealvra.sessions' has no attribute 'list_sessions'"). That is
+> closed: `sessions create/list/kill/kill-all` now dispatch over
+> daemon IPC when a daemon is running and fall back to the
+> process-local store only when none is, and a CLI-created session
+> **is** the daemon's session — the daemon binds it to a real vault
+> compartment and refuses a key id whose authenticated record it
+> cannot read. The flow is verified end-to-end against built code by
+> `tests/test_e2e.py` Layer B (session created by the CLI, PoP-signed
+> proxied calls, kill, audit verify — 14/14 pass here), and the
+> daemon-IPC session path itself is covered by
 > `tests/test_daemon_ipc.py` (`sessions.create` over IPC
 > returns the token exactly once, never logged).
+> One caveat that still holds: sessions live in daemon memory only —
+> if the daemon dies, every session dies with it.
 
-`keyholder sessions create` creates a session for exactly one key.
+`sealvra sessions create` creates a session for exactly one key.
 Choose:
 
 - **Provider:** `github` or `gemini` only.
@@ -109,30 +117,36 @@ successful proxied call.
 Point the agent at the local proxy (default `127.0.0.1:8765`) and
 give it the session token plus its per-request proof signature (or
 use the wrapper/sidecar, which signs for agents that cannot sign
-themselves). The agent never sees the real key. Keyholder checks the
+themselves). The agent never sees the real key. Sealvra checks the
 session, checks the call against the provider pack, asks for approval
 where the call is gated, writes the audit entry before forwarding,
 then injects the real key and forwards the call.
 
-Two v0.2 facts that bound this section. First, the production
+Two v0.2 facts bound this section. First, the production
 proxy approve callable is now the real broker-owned approver
 (CONTRACT §13.2): a test approver is refused unless the
-test-harness marker `KEYHOLDER_TEST_APPROVER` is set, so a
-test double can never silently become the production path.
-Second, the joined path is still unproven end-to-end: the daemon
-does not yet serve a proxy HTTP listener, and there is no CLI
-PoP-key handoff (the token is printed once; the PoP key stays
-in daemon memory), so a CLI-created session cannot yet drive a
-signed proxied call. The proxy engine itself is proven
-in-process against loopback mocks (`tests/test_integration.py`
-in v0.1; re-run on the frozen v0.2 tree, since the pack-signing
-flip changed pack loading).
+test-harness marker `SEALVRA_TEST_APPROVER` is set, so a
+test double can never silently become the production path. Because
+no OS approval gesture is implemented, that means a real level-3
+call is denied — approval works in the harness, not yet for a user.
+Second, the joined path is now proven end-to-end: the daemon serves
+the proxy, `daemon status` names the bound port and both upstream
+bases, and a CLI-created session can drive a PoP-signed proxied
+call — which is what `tests/test_e2e.py` Layer B does, 14/14 on
+macOS 2026-10-29. The PoP key leaves the daemon in one place only:
+`SEALVRA_TEST_MODE=1` makes `sessions create` print it once next to
+the token, for the test harness that must sign a request. In normal
+mode the token is the only thing printed and nothing re-displays
+either, which is why a production agent signs through the
+wrapper/sidecar instead of holding the key from CLI output. The
+proxy engine itself is also proven in-process against loopback
+mocks (`tests/test_integration.py`).
 
 For git work, use the wrapper, not a bare git client: see
 `docs/adapters.md` (git section) for the helper + wrapper
 contract and for what still bypasses it. A git client run
 directly with standing credentials outside the wrapper/helper
-is not logged and not gated — `keyholder doctor` inventories
+is not logged and not gated — `sealvra doctor` inventories
 standing git credentials (including `.git-credentials`) so you
 can find them.
 
@@ -143,10 +157,10 @@ asking the agent to guess why.
 
 ## Killing a session
 
-`keyholder sessions kill <session-id>` blocks new calls within 1
+`sealvra sessions kill <session-id>` blocks new calls within 1
 second and tears the session down within 5 seconds. Calls already
 sent run to completion and are listed on the kill receipt — read the
-receipt; "killed" does not mean "undone". `keyholder sessions
+receipt; "killed" does not mean "undone". `sealvra sessions
 kill-all` snapshots the session list at invocation; sessions created
 during the sweep are listed, not silently included or excluded.
 Kill needs no authentication, by design: in an emergency you must
@@ -154,11 +168,11 @@ not be locked out of killing by an approval prompt.
 
 ## Rotating, deleting, and backing up a key
 
-- **Rotate:** `keyholder keys rotate`. Rotation kills live sessions
+- **Rotate:** `sealvra keys rotate`. Rotation kills live sessions
   for that key, and is crash-safe: if the machine dies mid-rotation,
   the recovery path must not leave the old key dead with no
   replacement recorded. (Verify this path in code before release.)
-- **Delete:** `keyholder keys delete`. The deletion receipt states
+- **Delete:** `sealvra keys delete`. The deletion receipt states
   honestly what was deleted from the live vault and what backup
   copies you must still purge yourself — it does not claim that
   every copy everywhere is gone, because your own backups may retain
@@ -171,10 +185,10 @@ not be locked out of killing by an approval prompt.
 
 ## Checking the audit log
 
-`keyholder audit verify` reports one of: OK; UNANCHORED (amber, exit
+`sealvra audit verify` reports one of: OK; UNANCHORED (amber, exit
 2); TAMPERED (exit 3); MISSING-DIRECTORY (exit 3). A missing log
 directory is a failure, not a fresh start — a silently reborn log
-would hide tampering. `keyholder audit export` exports the log for
+would hide tampering. `sealvra audit export` exports the log for
 your own review. Audit entries carry pseudonyms, never labels and
 never key fragments; if you ever see a real key fragment in a log,
 treat it as a KH-3003 secret-in-log failure (exit 3) and stop.
@@ -188,7 +202,7 @@ departures." Approved calls send the key to the provider; undetected
 leaks would not increment the counter. Do not read the counter as
 proof that no leak ever happened — it counts what the broker saw.
 
-## What Keyholder will not do, even if asked
+## What Sealvra will not do, even if asked
 
 - Show a real key, copy a key to the clipboard, or print a session
   token after creation. There is no command for any of these.

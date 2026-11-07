@@ -8,7 +8,10 @@ Rules enforced here (CONTRACT §4/§12, v3 §1B N-B4, §1C N-C2/N-C6,
   refused (``WorkerAlreadyExists``). The worker process never receives
   a key value, a session token, or a PoP key -- only identifiers.
 - Kill is by process group + child scan + port-release verification,
-  never by PID alone. Teardown bound is 5 s (SIGTERM, then SIGKILL).
+  never by PID alone. The child scan reads /proc on Linux and shells
+  out to ``ps -A`` on macOS/BSD, where /proc does not exist; the win32
+  branch returns [] before either, so a Windows kill reaches the direct
+  worker only. Teardown bound is 5 s (SIGTERM, then SIGKILL).
 - Orphan workers self-terminate <= 5 s after supervisor loss: the
   worker polls its supervisor PID (default every 0.25 s) and exits
   when that PID no longer exists. This is checked by a release test
@@ -69,26 +72,7 @@ def _package_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def _scan_children(root_pid: int) -> list[int]:
-    """Best-effort child scan on Linux via /proc; [] elsewhere."""
-    proc = Path("/proc")
-    if not proc.is_dir():
-        return []
-    ppid_of: dict[int, int] = {}
-    try:
-        for entry in proc.iterdir():
-            if not entry.name.isdigit():
-                continue
-            try:
-                stat = (entry / "stat").read_text(errors="ignore")
-                # comm may contain spaces/parens; ppid is field after ')'.
-                rparen = stat.rfind(")")
-                fields = stat[rparen + 2 :].split()
-                ppid_of[int(entry.name)] = int(fields[1])
-            except (ValueError, IndexError, OSError):
-                continue
-    except OSError:
-        return []
+def _descendants(ppid_of: dict[int, int], root_pid: int) -> list[int]:
     children: list[int] = []
     frontier = [root_pid]
     while frontier:
@@ -98,6 +82,53 @@ def _scan_children(root_pid: int) -> list[int]:
                 children.append(pid)
                 frontier.append(pid)
     return children
+
+
+def _scan_children(root_pid: int) -> list[int]:
+    """Descendant PIDs of ``root_pid``.
+
+    /proc on Linux, ``ps -A`` on macOS/BSD. Windows has neither and is
+    covered by the taskkill tree in the kill path instead, so it
+    returns []. A scan that cannot run returns [] rather than lying:
+    the caller then kills only the worker itself.
+    """
+    proc = Path("/proc")
+    if proc.is_dir():
+        ppid_of: dict[int, int] = {}
+        try:
+            for entry in proc.iterdir():
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    stat = (entry / "stat").read_text(errors="ignore")
+                    # comm may contain spaces/parens; ppid is field after ')'.
+                    rparen = stat.rfind(")")
+                    fields = stat[rparen + 2 :].split()
+                    ppid_of[int(entry.name)] = int(fields[1])
+                except (ValueError, IndexError, OSError):
+                    continue
+        except OSError:
+            return []
+        return _descendants(ppid_of, root_pid)
+    if sys.platform == "win32":
+        return []
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid="],
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if out.returncode != 0:
+        return []
+    ppid_of = {}
+    for line in out.stdout.splitlines():
+        fields = line.split()
+        if len(fields) < 2:
+            continue
+        try:
+            ppid_of[int(fields[0])] = int(fields[1])
+        except ValueError:
+            continue
+    return _descendants(ppid_of, root_pid)
 
 
 def _port_released(port: int, timeout_s: float = 1.0) -> bool:
@@ -114,7 +145,7 @@ def _port_released(port: int, timeout_s: float = 1.0) -> bool:
 def _worker_main(argv: list[str]) -> int:
     """Worker process entry point (identifiers only, no key material).
 
-    Usage: python3 -m keyholder.supervisor --worker <session_id>
+    Usage: python3 -m sealvra.supervisor --worker <session_id>
            <key_id> <supervisor_pid> [--bind-port <port>]
     Exits promptly when the supervisor PID disappears, and on SIGTERM.
     """
@@ -181,7 +212,7 @@ class Supervisor:
         root = _package_root()
         env = dict(os.environ)
         env["PYTHONPATH"] = str(root) + os.pathsep + env.get("PYTHONPATH", "")
-        cmd = [sys.executable, "-m", "keyholder.supervisor", "--worker",
+        cmd = [sys.executable, "-m", "sealvra.supervisor", "--worker",
                session.session_id, session.key_id, str(os.getpid())]
         if port is not None:
             cmd += ["--bind-port", str(port)]
@@ -193,6 +224,15 @@ class Supervisor:
         }
         if sys.platform != "win32":
             popen_kwargs["start_new_session"] = True  # own pg for killpg
+        else:
+            # A worker is internal plumbing: one per live session, and a
+            # console window for each of them would bury the terminal the
+            # person actually typed in. Same flags the daemon uses for the
+            # proxy it spawns (daemon.py); stdout/stderr are already
+            # DEVNULL, so nothing is lost by having no console.
+            popen_kwargs["creationflags"] = (
+                getattr(subprocess, "DETACHED_PROCESS", 0)
+                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         proc = subprocess.Popen(cmd, **popen_kwargs)
         # No getpgid/killpg on Windows: pgid falls back to the PID and
         # terminate() below uses process.terminate() instead. The
@@ -316,7 +356,7 @@ class Supervisor:
 def main() -> int:
     if len(sys.argv) >= 2 and sys.argv[1] == "--worker":
         return _worker_main(sys.argv[1:])
-    print("keyholder.supervisor: use Supervisor class or --worker",
+    print("sealvra.supervisor: use Supervisor class or --worker",
           file=sys.stderr)
     return 2
 

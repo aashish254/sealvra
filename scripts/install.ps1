@@ -1,11 +1,11 @@
-# Keyholder v0.2 installer (Windows) -- W20.
+# Sealvra v0.2 installer (Windows) -- W20.
 #
 # Installs the zipapp distribution plus a launcher, and creates the
 # vault directory with restrictive permissions. Program and data are
 # separate on purpose:
-#   program:  $InstallRoot\keyholder.pyz
-#             $InstallRoot\bin\keyholder.cmd   (launcher)
-#   data:     $VaultDir (default $env:LOCALAPPDATA\Keyholder\vault)
+#   program:  $InstallRoot\sealvra.pyz
+#             $InstallRoot\bin\sealvra.cmd   (launcher)
+#   data:     $VaultDir (default $env:LOCALAPPDATA\Sealvra\vault)
 # Reinstalling NEVER touches existing vault data: if the vault
 # directory already exists its contents are left exactly as they are,
 # and this script says so out loud. Data carries over across reinstalls.
@@ -25,10 +25,10 @@
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 `
-#     [-PyzPath .\dist\keyholder.pyz] [-InstallRoot DIR] [-VaultDir DIR]
-# Defaults: PyzPath = <repo-root>\dist\keyholder.pyz,
-# InstallRoot = $env:LOCALAPPDATA\Keyholder,
-# VaultDir = $env:LOCALAPPDATA\Keyholder\vault (or $env:KEYHOLDER_HOME
+#     [-PyzPath .\dist\sealvra.pyz] [-InstallRoot DIR] [-VaultDir DIR]
+# Defaults: PyzPath = <repo-root>\dist\sealvra.pyz,
+# InstallRoot = $env:LOCALAPPDATA\Sealvra,
+# VaultDir = $env:LOCALAPPDATA\Sealvra\vault (or $env:SEALVRA_HOME
 # when that variable is set).
 
 [CmdletBinding()]
@@ -41,25 +41,25 @@ param(
 $ErrorActionPreference = "Stop"
 
 if ([string]::IsNullOrEmpty($InstallRoot)) {
-    $InstallRoot = Join-Path $env:LOCALAPPDATA "Keyholder"
+    $InstallRoot = Join-Path $env:LOCALAPPDATA "Sealvra"
 }
 if ([string]::IsNullOrEmpty($VaultDir)) {
-    if (-not [string]::IsNullOrEmpty($env:KEYHOLDER_HOME)) {
-        $VaultDir = $env:KEYHOLDER_HOME
+    if (-not [string]::IsNullOrEmpty($env:SEALVRA_HOME)) {
+        $VaultDir = $env:SEALVRA_HOME
     } else {
         $VaultDir = Join-Path $InstallRoot "vault"
     }
 }
 if ([string]::IsNullOrEmpty($PyzPath)) {
     $RepoRoot = Split-Path -Parent $PSScriptRoot
-    $PyzPath = Join-Path $RepoRoot "dist\keyholder.pyz"
+    $PyzPath = Join-Path $RepoRoot "dist\sealvra.pyz"
     if (-not (Test-Path $PyzPath)) {
-        $Candidate = Join-Path (Get-Location) "dist\keyholder.pyz"
+        $Candidate = Join-Path (Get-Location) "dist\sealvra.pyz"
         if (Test-Path $Candidate) { $PyzPath = $Candidate }
     }
 }
 if (-not (Test-Path $PyzPath)) {
-    Write-Error "install.ps1: keyholder.pyz not found: $PyzPath (pass -PyzPath explicitly)."
+    Write-Error "install.ps1: sealvra.pyz not found: $PyzPath (pass -PyzPath explicitly)."
     exit 1
 }
 
@@ -86,12 +86,12 @@ if ($PyVersion -notmatch "Python 3\.(1[2-9]|[2-9][0-9])") {
 
 $BinDir = Join-Path $InstallRoot "bin"
 New-Item -ItemType Directory -Force -Path $InstallRoot, $BinDir | Out-Null
-Copy-Item -Path $PyzPath -Destination (Join-Path $InstallRoot "keyholder.pyz") -Force
+Copy-Item -Path $PyzPath -Destination (Join-Path $InstallRoot "sealvra.pyz") -Force
 
 # Launcher: resolves the zipapp relative to its own location, so the
 # install root is not baked in and a move/reinstall stays consistent.
-$Launcher = Join-Path $BinDir "keyholder.cmd"
-$LauncherText = "@echo off`r`npython `"%~dp0..\keyholder.pyz`" %*`r`n"
+$Launcher = Join-Path $BinDir "sealvra.cmd"
+$LauncherText = "@echo off`r`npython `"%~dp0..\sealvra.pyz`" %*`r`n"
 [System.IO.File]::WriteAllText($Launcher, $LauncherText)
 
 # Vault directory: create if missing; NEVER touch contents on
@@ -127,10 +127,10 @@ try {
     $DepsOk = $false
 }
 if (-not $DepsOk) {
-    Write-Warning "Python packages 'cryptography' and/or 'argon2-cffi' are not installed. Install them from requirements.txt before running keyholder."
+    Write-Warning "Python packages 'cryptography' and/or 'argon2-cffi' are not installed. Install them from requirements.txt before running sealvra."
 }
 
-Write-Output "installed keyholder program to: $(Join-Path $InstallRoot 'keyholder.pyz')"
+Write-Output "installed sealvra program to: $(Join-Path $InstallRoot 'sealvra.pyz')"
 Write-Output "installed launcher to:          $Launcher"
 Write-Output "vault directory (data, preserved on reinstall): $VaultDir"
-Write-Output "add $BinDir to your PATH, then run: keyholder --help"
+Write-Output "add $BinDir to your PATH, then run: sealvra --help"

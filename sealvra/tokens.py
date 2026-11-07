@@ -1,4 +1,4 @@
-"""Session tokens and proof-of-possession (PoP) for Keyholder v0.1.
+"""Session tokens and proof-of-possession (PoP) for Sealvra v0.1.
 
 W03 module. Contract §4 and plan v3 §1C (N-C3) rules implemented here:
 

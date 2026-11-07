@@ -1,6 +1,6 @@
 """W09 audit tests (unittest). Fake TEST-ONLY material only, no real keys.
 
-Run from ~/workspace/keyholder-build:  python3 -m unittest tests.test_w09_audit -v
+Run from ~/workspace/sealvra-build:  python3 -m unittest tests.test_w09_audit -v
 """
 import hashlib
 import hmac
@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from keyholder.audit import (  # noqa: E402
+from sealvra.audit import (  # noqa: E402
     AuditLog, SecretScrubber, pseudonym, canonical_json, entry_hash_of,
     GENESIS_HASH, AuditUnavailableError, ForeignGrowthError,
     GenesisGuardError, SecretDetectedError,
@@ -224,7 +224,7 @@ class TestGenesisGuardAndOffset(unittest.TestCase):
         # itself plus the status mapping through a bare verify on a
         # missing-dir root using a new object created before deletion.
         # (Covered by the guard raise above; status constant checked:)
-        from keyholder.audit import EXIT_CODES
+        from sealvra.audit import EXIT_CODES
         self.assertEqual(EXIT_CODES["MISSING-DIRECTORY"], 3)
 
     def _bare_log(self, root):
@@ -627,7 +627,7 @@ class TestV02AuditHardening(unittest.TestCase):
         self.assertEqual(r.status, "TAMPERED")
 
     def test_genesis_missing_with_entries_is_tampered(self):
-        from keyholder.audit import verify_audit_directory
+        from sealvra.audit import verify_audit_directory
         log, root = make_log(self)
         dec(log)
         log.anchor()
@@ -637,7 +637,7 @@ class TestV02AuditHardening(unittest.TestCase):
         self.assertTrue(any("genesis" in e for e in r.errors))
 
     def test_anchor_chain_id_mismatch_is_tampered(self):
-        from keyholder.audit import verify_audit_directory
+        from sealvra.audit import verify_audit_directory
         log, root = make_log(self)
         dec(log)
         log.anchor()
@@ -649,7 +649,7 @@ class TestV02AuditHardening(unittest.TestCase):
         self.assertEqual(r.status, "TAMPERED")
 
     def test_anchor_seq_regression_is_tampered(self):
-        from keyholder.audit import verify_audit_directory, GENESIS_HASH as GH
+        from sealvra.audit import verify_audit_directory, GENESIS_HASH as GH
         log, root = make_log(self)
         dec(log)
         log.anchor()
@@ -898,7 +898,7 @@ class TestV02AuditHardening(unittest.TestCase):
 
     # -- standalone verifier ---------------------------------------------------
     def test_standalone_verifier_agrees_and_writes_nothing(self):
-        from keyholder.audit import verify_audit_directory
+        from sealvra.audit import verify_audit_directory
         log, root = make_log(self)
         dec(log)
         dec(log)
@@ -922,7 +922,7 @@ class TestV02AuditHardening(unittest.TestCase):
         self.assertEqual(log.verify().status, "TAMPERED")
 
     def test_standalone_missing_directory_writes_nothing(self):
-        from keyholder.audit import verify_audit_directory
+        from sealvra.audit import verify_audit_directory
         log, root = make_log(self)
         dec(log)
         shutil.rmtree(root / "audit")
@@ -933,7 +933,7 @@ class TestV02AuditHardening(unittest.TestCase):
         self.assertEqual(self._files(root), before)
 
     def test_standalone_verifier_works_on_halted_writer_log(self):
-        from keyholder.audit import verify_audit_directory
+        from sealvra.audit import verify_audit_directory
         log, root = make_log(self)
         dec(log)
         log.anchor()
@@ -952,7 +952,7 @@ class TestV02AuditHardening(unittest.TestCase):
         log, root = make_log(self)
         dec(log)
         log.anchor()
-        ok = subprocess.run([sys.executable, "-m", "keyholder.audit", "--root", str(root)],
+        ok = subprocess.run([sys.executable, "-m", "sealvra.audit", "--root", str(root)],
                             cwd=build_root, capture_output=True, text=True)
         self.assertEqual(ok.returncode, 0)
         self.assertTrue(ok.stdout.startswith("OK"))
@@ -962,7 +962,7 @@ class TestV02AuditHardening(unittest.TestCase):
         obj["bytes_out"] = 99999
         lines[-1] = canonical_json(obj)
         p.write_text("\n".join(lines) + "\n")
-        bad = subprocess.run([sys.executable, "-m", "keyholder.audit", "--root", str(root)],
+        bad = subprocess.run([sys.executable, "-m", "sealvra.audit", "--root", str(root)],
                              cwd=build_root, capture_output=True, text=True)
         self.assertEqual(bad.returncode, 3)
         self.assertTrue(bad.stdout.startswith("TAMPERED"))

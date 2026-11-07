@@ -1,9 +1,20 @@
-"""In-memory session store for Keyholder v0.1 (W03).
+"""In-memory session store for Sealvra v0.1 (W03).
 
 Normative sources: CONTRACT.md §2–§4 and plan v3 §1B (N-B1–N-B7) and
 §1C (N-C1–N-C3). Where v1/v2 disagree with v3, v3 wins; deleted v1/v2
 passages (session extensions, multi-key sessions, fixed session
 directories, on-disk tokens/PoP keys) are never built here.
+
+Production status of this module (v0.2 Phase 2, stated so nobody reads
+its green tests as the shipped session path): nothing in the CLI, the
+daemon or the proxy instantiates ``SessionStore``. The live session path
+is ``sealvra.broker.Broker``, which the detached daemon owns; the
+daemon's ``attach_session_store`` hook accepts a store but reports
+``"wired": False`` unless a caller attached one in-process. So the
+lifecycle rules below are enforced by this store and proven by
+``tests/test_w03_sessions.py`` — and proven for the broker separately,
+through the daemon and the proxy, by ``tests/test_e2e.py`` and
+``tests/test_daemon_ipc.py``.
 
 Rules enforced by this module:
 
@@ -55,7 +66,7 @@ Error codes (contract §9): dead/expired/killed sessions report
 Denials to the agent carry no rule_id or category (those go to the
 audit log, owned by W09, not here).
 
-Shared types come from W01's ``keyholder.types`` (contract §2), which
+Shared types come from W01's ``sealvra.types`` (contract §2), which
 this module imports and re-exports: :class:`Session` below subclasses
 the W01 Session, adding only the two fields this module needs that
 contract §2 does not name — ``idle_seconds`` (to enforce the idle
@@ -198,7 +209,11 @@ MACOS_SLEEP_CLOCK_DESIGN = (
 def sleep_aware_clock_name() -> str:
     """Name of the sleep-aware clock for this platform (v3 N-F1)."""
     if sys.platform == "darwin":
-        return "mach_continuous_time (design only, not run)"
+        # Naming mach_continuous_time here would read as a sleep-aware
+        # claim, and it has never been called on a Mac in this tree.
+        # Say what is actually used and that it stops during sleep.
+        return ("time.monotonic (NOT sleep-aware); mach_continuous_time "
+                "is design-only and has never been called here")
     if CLOCK_BOOTTIME is not None:
         return "CLOCK_BOOTTIME"
     return "time.monotonic (NOT sleep-aware)"

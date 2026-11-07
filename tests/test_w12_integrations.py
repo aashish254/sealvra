@@ -5,6 +5,7 @@ no network beyond loopback. TEST-ONLY values only."""
 
 import hashlib
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -12,7 +13,14 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from keyholder import wrapper, mcp, probe
+from sealvra import wrapper, mcp, probe
+
+# A non-script executable the launch tests can point the binary verifier
+# at. The old fixture hardcoded /bin/true, which is Linux-only: on this
+# Mac /bin/true does not exist, so two launch tests errored on a missing
+# file instead of running the launch path. What the tests need is "some
+# real binary that is not a #! script", not one specific path.
+BENIGN_BINARY = os.path.realpath(shutil.which("true") or sys.executable)
 
 
 def _write_tmp(content):
@@ -123,12 +131,12 @@ class TestBinaryAndLaunch(unittest.TestCase):
         with self.assertRaises(wrapper.WrapperRefusal):
             wrapper.launch_agent("claude", [], "http://127.0.0.1:8765",
                                  daemon_up=False, dry_run=True,
-                                 explicit_binary="/bin/true")
+                                 explicit_binary=BENIGN_BINARY)
 
     def test_launch_refuses_cursor_agent_env_mode(self):
         with self.assertRaises(wrapper.WrapperRefusal):
             wrapper.launch_agent("cursor-agent", [], "http://127.0.0.1:8765",
-                                 dry_run=True, explicit_binary="/bin/true")
+                                 dry_run=True, explicit_binary=BENIGN_BINARY)
 
     def test_launch_refuses_settings_override(self):
         path = _write_tmp('ANTHROPIC_API_KEY = "sk-ant-TESTONLY123456"\n')
@@ -136,7 +144,7 @@ class TestBinaryAndLaunch(unittest.TestCase):
             with self.assertRaises(wrapper.WrapperRefusal):
                 wrapper.launch_agent(
                     "claude", [], "http://127.0.0.1:8765", dry_run=True,
-                    explicit_binary="/bin/true",
+                    explicit_binary=BENIGN_BINARY,
                     settings_layers={"project": path})
         finally:
             os.unlink(path)
@@ -145,10 +153,11 @@ class TestBinaryAndLaunch(unittest.TestCase):
         plan = wrapper.launch_agent(
             "claude", ["--help"], "http://127.0.0.1:8765",
             session_token="kh_sess_TEST-ONLY", dry_run=True,
-            explicit_binary="/bin/true", allow_script=False)
-        # /bin/true is an ELF binary, not a script, so verification passes.
-        self.assertEqual(plan.binary_path, os.path.realpath("/bin/true"))
-        self.assertIn("KEYHOLDER_PROXY_BASE_URL", plan.env_keys)
+            explicit_binary=BENIGN_BINARY, allow_script=False)
+        # BENIGN_BINARY is a compiled binary, not a script, so
+        # allow_script=False must still let it through.
+        self.assertEqual(plan.binary_path, BENIGN_BINARY)
+        self.assertIn("SEALVRA_PROXY_BASE_URL", plan.env_keys)
         self.assertIn("GH_CONFIG_DIR", plan.env_keys)
 
     def test_script_binary_refused_without_allow(self):
@@ -172,15 +181,15 @@ class TestSidecarPop(unittest.TestCase):
                               b"hello", timestamp=int(time.time()))
         self.assertTrue(signer.verify(
             "POST", "127.0.0.1:8765", "/v1/messages", b"hello",
-            int(headers["X-Keyholder-Timestamp"]), headers["X-Keyholder-PoP"]))
+            int(headers["X-Sealvra-Timestamp"]), headers["X-Sealvra-PoP"]))
         # Tampered body fails.
         self.assertFalse(signer.verify(
             "POST", "127.0.0.1:8765", "/v1/messages", b"evil",
-            int(headers["X-Keyholder-Timestamp"]), headers["X-Keyholder-PoP"]))
+            int(headers["X-Sealvra-Timestamp"]), headers["X-Sealvra-PoP"]))
         # Stale timestamp (>300s skew) fails.
         self.assertFalse(signer.verify(
             "POST", "127.0.0.1:8765", "/v1/messages", b"hello",
-            int(time.time()) - 3600, headers["X-Keyholder-PoP"]))
+            int(time.time()) - 3600, headers["X-Sealvra-PoP"]))
 
     def test_signer_repr_redacted_no_key_exposure(self):
         # PoP key lives in memory by design (CONTRACT §4); repr must
@@ -196,7 +205,7 @@ class TestSidecarPop(unittest.TestCase):
         try:
             headers = server.sign_via_socket("GET", "127.0.0.1:8765",
                                              "/v1/models")
-            self.assertIn("X-Keyholder-PoP", headers)
+            self.assertIn("X-Sealvra-PoP", headers)
             # Wrong handshake token -> DENIED.
             import socket as _socket
             client = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
@@ -255,10 +264,10 @@ class TestMcp(unittest.TestCase):
         with self.assertRaises(mcp.McpRefusal):
             mcp.call_tool("http_call", {}, daemon_up=True, bearer_present=True)
         with self.assertRaises(mcp.DaemonDown):
-            mcp.call_tool("keyholder.session_status", {}, daemon_up=False,
+            mcp.call_tool("sealvra.session_status", {}, daemon_up=False,
                           bearer_present=True)
         with self.assertRaises(mcp.McpRefusal):
-            mcp.call_tool("keyholder.session_status", {}, daemon_up=True,
+            mcp.call_tool("sealvra.session_status", {}, daemon_up=True,
                           bearer_present=False)
 
     def test_spawn_token_single_use_and_expiry(self):
@@ -270,7 +279,7 @@ class TestMcp(unittest.TestCase):
         self.assertFalse(store.consume(token2, "other-spawner"))
 
     def test_bearer_reference_only_and_team_refused(self):
-        entry = mcp.bearer_config_entry("${input:keyholder-bearer}")
+        entry = mcp.bearer_config_entry("${input:sealvra-bearer}")
         self.assertEqual(entry["type"], "bearer_reference")
         with self.assertRaises(mcp.McpRefusal):
             mcp.bearer_config_entry("kh_sess_LITERAL-TOKEN")
@@ -459,7 +468,7 @@ class TestMigration(unittest.TestCase):
         self.assertEqual(report["remaining"], [])
         with open(os.path.join(home, ".zshrc")) as fh:
             text = fh.read()
-        self.assertIn("# keyholder-migrated: export GITHUB_TOKEN=", text)
+        self.assertIn("# sealvra-migrated: export GITHUB_TOKEN=", text)
         self.assertIn("export EDITOR=vi", text)
         backup = os.path.join(home, ".zshrc.kh-migrate-bak")
         self.assertTrue(os.path.exists(backup))
@@ -538,7 +547,7 @@ class TestSessionConfigWatch(unittest.TestCase):
         try:
             plan = wrapper.launch_agent(
                 "claude", [], "http://127.0.0.1:8765", dry_run=True,
-                explicit_binary="/bin/true", watch_config_paths=[path])
+                explicit_binary=BENIGN_BINARY, watch_config_paths=[path])
             self.assertIsNotNone(plan.config_watch)
             self.assertEqual(plan.config_watch.status(), "verified")
             with open(path, "w") as fh:

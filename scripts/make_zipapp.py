@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the Keyholder v0.1 distribution as a deterministic zipapp.
+"""Build the Sealvra v0.1 distribution as a deterministic zipapp.
 
 W20 owns this file (CONTRACT.md section 12; W16 owns only the Windows
 section of packaging, W17 only the macOS section -- neither owns this
@@ -7,7 +7,7 @@ script file, and this script does not edit their files).
 
 Distribution shape for v0.1 (honest, no over-claim):
   * The v0.1 distribution for Linux, Windows, and macOS is this zipapp:
-    ``dist/keyholder.pyz``, run as ``python3 keyholder.pyz --help``.
+    ``dist/sealvra.pyz``, run as ``python3 sealvra.pyz --help``.
   * The target machine must already have Python 3.12 plus the two
     pinned dependencies from requirements.txt (``cryptography`` and
     ``argon2-cffi``); they are NOT bundled into the zipapp.
@@ -15,7 +15,8 @@ Distribution shape for v0.1 (honest, no over-claim):
     shapes are specifications only in v0.1 and are NOT built by this
     script; nothing here claims they exist.
   * The GitHub Actions workflow in .github/workflows/ci.yml is
-    PREPARED, NOT RUN: no repository exists yet, so no CI run has
+    PREPARED, NOT RUN: it is not on the pushed branch of the public
+    repository (only README.md is), so no CI run has
     happened and no passing run is claimed anywhere in this file.
 
 Determinism:
@@ -24,16 +25,16 @@ Determinism:
     (an --epoch flag overrides it for local testing); when neither is
     set, 1980-01-01 00:00:00 UTC is used so two builds are still
     byte-identical. No absolute paths are stored: archive names are
-    relative (``keyholder/...`` plus a top-level ``__main__.py``).
+    relative (``sealvra/...`` plus a top-level ``__main__.py``).
   * The top-level ``__main__.py`` is a two-line shim that runs the
-    package itself (``runpy.run_module("keyholder")``). W10's
-    ``keyholder/__main__.py`` uses a relative import (``from .cli
+    package itself (``runpy.run_module("sealvra")``). W10's
+    ``sealvra/__main__.py`` uses a relative import (``from .cli
     import main``), which cannot work as a top-level file, so a
     verbatim copy would break the zipapp; the shim delegates every
     CLI behaviour to W10's package and invents none of its own.
 
 Fail-closed behaviour:
-  * If ``keyholder/__main__.py`` is missing, the build fails with a
+  * If ``sealvra/__main__.py`` is missing, the build fails with a
     non-zero exit and writes NO output file. A missing or half-built
     package must never be shipped as an apparently valid zipapp.
   * No key, token, or credential is read, embedded, or printed here.
@@ -103,7 +104,7 @@ def collect_files(package_dir: Path) -> list:
 
 def build_zipapp(root: Path, output: Path, epoch: int) -> Path:
     """Build the zipapp. Returns the output path. Fails closed."""
-    package_dir = root / "keyholder"
+    package_dir = root / "sealvra"
     entry_point = package_dir / "__main__.py"
     if not entry_point.is_file():
         raise SystemExit(
@@ -114,8 +115,8 @@ def build_zipapp(root: Path, output: Path, epoch: int) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     date_time = zip_datetime(epoch)
 
-    with tempfile.TemporaryDirectory(prefix="keyholder-zipapp-") as tmp:
-        tmp_path = Path(tmp) / "keyholder.pyz"
+    with tempfile.TemporaryDirectory(prefix="sealvra-zipapp-") as tmp:
+        tmp_path = Path(tmp) / "sealvra.pyz"
         with zipfile.ZipFile(
             tmp_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
         ) as zf:
@@ -128,7 +129,7 @@ def build_zipapp(root: Path, output: Path, epoch: int) -> Path:
                 top,
                 b"import runpy, sys\n"
                 b"if __name__ == '__main__':\n"
-                b"    sys.exit(runpy.run_module('keyholder', "
+                b"    sys.exit(runpy.run_module('sealvra', "
                 b"run_name='__main__'))\n",
             )
             for path in collect_files(package_dir):
@@ -151,18 +152,18 @@ def build_zipapp(root: Path, output: Path, epoch: int) -> Path:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Build dist/keyholder.pyz deterministically."
+        description="Build dist/sealvra.pyz deterministically."
     )
     parser.add_argument(
         "--root",
         default=None,
-        help="Build root containing the keyholder/ package "
+        help="Build root containing the sealvra/ package "
         "(default: parent of this script's directory).",
     )
     parser.add_argument(
         "--output",
         default=None,
-        help="Output path (default: <root>/dist/keyholder.pyz).",
+        help="Output path (default: <root>/dist/sealvra.pyz).",
     )
     parser.add_argument(
         "--epoch",
@@ -173,7 +174,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     root = Path(args.root) if args.root else Path(__file__).resolve().parent.parent
     output = (
-        Path(args.output) if args.output else root / "dist" / "keyholder.pyz"
+        Path(args.output) if args.output else root / "dist" / "sealvra.pyz"
     )
     epoch = resolve_epoch(args.epoch, os.environ.get("SOURCE_DATE_EPOCH"))
     build_zipapp(root, output, epoch)

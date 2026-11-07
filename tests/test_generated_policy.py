@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from keyholder.packs import load_pack
+from sealvra.packs import load_pack
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -20,7 +20,7 @@ CASES = [{'kind': 'decision', 'provider': 'github', 'method': 'POST', 'path': '/
 
 CASE_COUNT = len(CASES)
 
-from keyholder.policy import (
+from sealvra.policy import (
     GENERIC_DENIAL, PolicyEngine, agent_denial_message,
     decision_after_approval, evaluate_graphql_body, evaluate_graphql_document,
 )

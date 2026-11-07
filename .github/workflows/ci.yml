@@ -1,10 +1,13 @@
-# Keyholder v0.2 CI -- PREPARED, NOT RUN; NEVER RUN.
+# Sealvra v0.2 CI -- PREPARED, NOT RUN; NEVER RUN.
 #
-# W19 owns this file (CONTRACT §13.6). No repository exists yet, so
-# this workflow has never run and no passing run is claimed anywhere
-# in it. Do not add a status badge or "passing" wording until a real
-# run exists. Nothing here is a release, a signature, or an
-# authorisation.
+# W19 owns this file (CONTRACT §13.6). The repository now exists and is
+# public (github.com/aashish254/sealvra), but this workflow has still
+# never run: as checked on 2026-10-30 the Actions API reports
+# `total_count: 0` runs, and `.github/workflows` returns 404 on the
+# remote because only the initial commit has been pushed -- this file
+# is uncommitted local work. So no passing run is claimed anywhere in
+# it. Do not add a status badge or "passing" wording until a real run
+# exists. Nothing here is a release, a signature, or an authorisation.
 #
 # What this workflow does when a repository exists (each job):
 #   * linux / windows / macos: install ONLY the two pinned
@@ -47,14 +50,27 @@
 # provenance. Do not copy this step into a release workflow
 # unchanged.
 #
-# Action pinning (F16-C7, OPEN): actions are referenced by major
-# version tag below because their full commit SHAs are not known to
-# this local build and must never be invented here. Before the first
-# real run, pin every action to its full SHA and record the SHAs in
-# docs/supply-chain.md; until then this workflow is not
-# release-ready. The PR-target trigger form is forbidden anywhere
-# in this file; fork-PR jobs run without any credential-store
-# reference (a test asserts the workflow contains none).
+# Action pinning (F16-C7, RESOLVED locally -- still not release-ready):
+# every action below is pinned to its full commit SHA. The SHAs were
+# read on 2026-10-28 from the public GitHub References API on this Mac
+# (`gh api repos/<owner>/<repo>/git/ref/tags/<major>`, each ref object
+# confirmed to be type=commit and to also carry its patch tag), not
+# from a CI run -- this workflow has still never run. Pinned:
+#   actions/checkout        11d5960a... = tag v4     = v4.4.0
+#   actions/setup-python    a26af69b... = tag v5     = v5.6.0
+#   actions/upload-artifact ea165f8d... = tag v4     = v4.6.2
+#   actions/download-artifact d3f86a10... = tag v4   = v4.3.0
+# Drift, stated honestly: these are the HEAD of the v4/v5 lines, not
+# the current upstream majors (checkout v7 = 3d3c42e5aac5ba805825da76410c181273ba90b1,
+# setup-python v7 = 6d4fd22b20465ccc0f7354476588e8df7c9ca0e0,
+# upload-artifact v7 = cf430e030ddbb5b0abf93d22962f4752f3646cd9,
+# download-artifact v8 = 9000827ccba6bdab643e8b6fd33ac0654aef8333).
+# Major-line upgrades change artifact retention and runner behaviour, so
+# they are an owner decision, not a mechanical edit; see
+# docs/supply-chain.md for the SHA table and the re-check command.
+# The PR-target trigger form is forbidden anywhere in this file;
+# fork-PR jobs run without any credential-store reference (a test
+# asserts the workflow contains none).
 #
 # Platform-check interface (W16/W17 own the check scripts):
 #   * Windows job runs:  python scripts/windows_check.py
@@ -92,9 +108,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0 (F16-C7)
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0 (F16-C7)
         with:
           python-version: "3.12"
       - name: Set SOURCE_DATE_EPOCH (CI-build value; see header -- release must use signed-tag timestamp)
@@ -119,13 +135,13 @@ jobs:
       - name: Build zipapp
         run: python scripts/make_zipapp.py
       - name: Record zipapp and SBOM hashes
-        run: python -c "import hashlib, pathlib; [print(f'{p} sha256=' + hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()) for p in ('dist/keyholder.pyz', 'sbom.fresh.json')]"
+        run: python -c "import hashlib, pathlib; [print(f'{p} sha256=' + hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()) for p in ('dist/sealvra.pyz', 'sbom.fresh.json')]"
       - name: Upload zipapp, SBOM and test counts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2 (F16-C7)
         with:
-          name: keyholder-linux
+          name: sealvra-linux
           path: |
-            dist/keyholder.pyz
+            dist/sealvra.pyz
             sbom.fresh.json
             sbom.json
             test-output.txt
@@ -138,9 +154,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0 (F16-C7)
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0 (F16-C7)
         with:
           python-version: "3.12"
       - name: Set SOURCE_DATE_EPOCH (CI-build value; see header -- release must use signed-tag timestamp)
@@ -164,13 +180,13 @@ jobs:
       - name: Build zipapp
         run: python scripts/make_zipapp.py
       - name: Record zipapp and SBOM hashes
-        run: python -c "import hashlib, pathlib; [print(f'{p} sha256=' + hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()) for p in ('dist/keyholder.pyz', 'sbom.fresh.json')]"
+        run: python -c "import hashlib, pathlib; [print(f'{p} sha256=' + hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()) for p in ('dist/sealvra.pyz', 'sbom.fresh.json')]"
       - name: Upload zipapp, SBOM and test counts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2 (F16-C7)
         with:
-          name: keyholder-windows
+          name: sealvra-windows
           path: |
-            dist/keyholder.pyz
+            dist/sealvra.pyz
             sbom.fresh.json
             test-output.txt
 
@@ -182,9 +198,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0 (F16-C7)
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0 (F16-C7)
         with:
           python-version: "3.12"
       - name: Set SOURCE_DATE_EPOCH (CI-build value; see header -- release must use signed-tag timestamp)
@@ -208,13 +224,13 @@ jobs:
       - name: Build zipapp
         run: python scripts/make_zipapp.py
       - name: Record zipapp and SBOM hashes
-        run: python -c "import hashlib, pathlib; [print(f'{p} sha256=' + hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()) for p in ('dist/keyholder.pyz', 'sbom.fresh.json')]"
+        run: python -c "import hashlib, pathlib; [print(f'{p} sha256=' + hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()) for p in ('dist/sealvra.pyz', 'sbom.fresh.json')]"
       - name: Upload zipapp, SBOM and test counts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2 (F16-C7)
         with:
-          name: keyholder-macos
+          name: sealvra-macos
           path: |
-            dist/keyholder.pyz
+            dist/sealvra.pyz
             sbom.fresh.json
             test-output.txt
 
@@ -227,9 +243,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0 (F16-C7)
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0 (F16-C7)
         with:
           python-version: "3.12"
       - name: Set SOURCE_DATE_EPOCH (must match the build job's value for this commit)
@@ -239,16 +255,16 @@ jobs:
       - name: Rebuild zipapp independently of the build job's artifact
         run: python scripts/make_zipapp.py --output dist/rebuilt.pyz
       - name: Download build artifact for comparison
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0 (F16-C7)
         with:
-          name: keyholder-linux
+          name: sealvra-linux
           path: rebuild-compare
       - name: Rebuild hash must equal build hash (mismatch halts everything before signing)
-        run: python -c "import hashlib,pathlib,sys; a=hashlib.sha256(pathlib.Path('dist/rebuilt.pyz').read_bytes()).hexdigest(); b=hashlib.sha256(pathlib.Path('rebuild-compare/dist/keyholder.pyz').read_bytes()).hexdigest(); print('rebuild sha256='+a); print('build    sha256='+b); sys.exit(0 if a==b else 1)"
+        run: python -c "import hashlib,pathlib,sys; a=hashlib.sha256(pathlib.Path('dist/rebuilt.pyz').read_bytes()).hexdigest(); b=hashlib.sha256(pathlib.Path('rebuild-compare/dist/sealvra.pyz').read_bytes()).hexdigest(); print('rebuild sha256='+a); print('build    sha256='+b); sys.exit(0 if a==b else 1)"
       - name: Upload rebuilt zipapp for the signing job's comparison
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2 (F16-C7)
         with:
-          name: keyholder-rebuild
+          name: sealvra-rebuild
           path: dist/rebuilt.pyz
 
   sign:
@@ -264,14 +280,14 @@ jobs:
     permissions: {}
     steps:
       - name: Download build artifact (no source checkout)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0 (F16-C7)
         with:
-          name: keyholder-linux
+          name: sealvra-linux
           path: sign-build
       - name: Download rebuild artifact (no source checkout)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0 (F16-C7)
         with:
-          name: keyholder-rebuild
+          name: sealvra-rebuild
           path: sign-rebuild
       - name: Pre-sign validation checklist (code, not a document)
         # Real checks, both must pass before any future signing step
@@ -280,7 +296,7 @@ jobs:
         # (name, version, licence). The committed SBOM travels as an
         # artifact from the linux job because this job has no checkout.
         run: |
-          python -c "import hashlib,pathlib,sys,json; b=pathlib.Path('sign-build/dist/keyholder.pyz').read_bytes(); r=pathlib.Path('sign-rebuild/dist/rebuilt.pyz').read_bytes(); hb=hashlib.sha256(b).hexdigest(); hr=hashlib.sha256(r).hexdigest(); print('build sha256='+hb); print('rebuild sha256='+hr); assert hb==hr, 'build/rebuild hash mismatch -- HALT, never sign'; f={c['name']:(c['version'],str(c.get('licenses'))) for c in json.load(open('sign-build/sbom.fresh.json'))['components']}; k={c['name']:(c['version'],str(c.get('licenses'))) for c in json.load(open('sign-build/sbom.json'))['components']}; assert f==k, 'SBOM components changed vs committed SBOM -- HALT, never sign'; print('pre-sign checklist PASS')"
+          python -c "import hashlib,pathlib,sys,json; b=pathlib.Path('sign-build/dist/sealvra.pyz').read_bytes(); r=pathlib.Path('sign-rebuild/dist/rebuilt.pyz').read_bytes(); hb=hashlib.sha256(b).hexdigest(); hr=hashlib.sha256(r).hexdigest(); print('build sha256='+hb); print('rebuild sha256='+hr); assert hb==hr, 'build/rebuild hash mismatch -- HALT, never sign'; f={c['name']:(c['version'],str(c.get('licenses'))) for c in json.load(open('sign-build/sbom.fresh.json'))['components']}; k={c['name']:(c['version'],str(c.get('licenses'))) for c in json.load(open('sign-build/sbom.json'))['components']}; assert f==k, 'SBOM components changed vs committed SBOM -- HALT, never sign'; print('pre-sign checklist PASS')"
       - name: Signing NOT CONFIGURED -- fail closed (prepared job only)
         run: |
           echo "No signing key, no protected environment with two approvers, and no repository exist yet."

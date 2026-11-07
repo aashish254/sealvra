@@ -17,14 +17,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from keyholder.packs import (
+from sealvra.packs import (
     PackRefusedError,
     finalise_pack,
     load_pack,
     load_pack_directory,
     parse_pack,
 )
-from keyholder.policy import (
+from sealvra.policy import (
     LEVEL_ALLOW,
     LEVEL_ALLOW_WITH_LOG,
     LEVEL_APPROVE,
@@ -105,7 +105,7 @@ class TestPackLoading(unittest.TestCase):
         # W04 v0.2 flip: disk loads now require a signature, so the
         # fixture is signed with a test-generated key (never the
         # shipped key) and trust files live in the same temp dir.
-        from keyholder.packs import (
+        from sealvra.packs import (
             RevokedLists,
             generate_pack_keypair,
             pack_key_id,
@@ -145,7 +145,7 @@ class TestPackLoading(unittest.TestCase):
         pack = _base_pack()
         del pack["endpoints"]
         # Re-hash so the failure is the missing field, not the hash.
-        from keyholder.packs import compute_content_hash
+        from sealvra.packs import compute_content_hash
 
         pack["content_sha256"] = compute_content_hash(pack)
         with self.assertRaises(PackRefusedError):

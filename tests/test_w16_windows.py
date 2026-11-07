@@ -4,7 +4,7 @@ These tests run on a Linux host. They distinguish, in every case,
 Linux-host checks (which can PASS or FAIL here) from real-Windows
 checks (which are NOT-RUN here, never PASSED). No test in this file
 claims a Windows-native behaviour: the platform-logic tests call
-keyholder.platform functions with platform="win32" arguments, which
+sealvra.platform functions with platform="win32" arguments, which
 proves gate logic only.
 
 Fake keys only: no test in this file uses, reads, or prints a real
@@ -27,9 +27,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from keyholder import approval as approval_mod  # noqa: E402
-from keyholder import platform as platform_mod  # noqa: E402
-from keyholder.supervisor import Supervisor, WorkerHandle  # noqa: E402
+from sealvra import approval as approval_mod  # noqa: E402
+from sealvra import platform as platform_mod  # noqa: E402
+from sealvra.supervisor import Supervisor, WorkerHandle  # noqa: E402
 
 CHECK = ROOT / "scripts" / "windows_check.py"
 DOC = ROOT / "docs" / "windows.md"
@@ -44,8 +44,8 @@ REAL_WINDOWS_CHECKS = [
     "Remote Credential Guard acceptance on a domain-joined machine",
     "running scripts/install.ps1 on Windows",
     "running scripts/uninstall.ps1 on Windows (default and wipe paths)",
-    "PowerShell parsing of scripts/install.ps1 and scripts/uninstall.ps1 (pwsh unavailable on this Linux VM)",
-    "running dist/keyholder.pyz under Windows Python 3.12",
+    "PowerShell parsing of scripts/install.ps1 and scripts/uninstall.ps1 (pwsh unavailable on the checking host)",
+    "running dist/sealvra.pyz under Windows Python 3.12",
     "Windows supervisor process-tree / job-object kill for worker children",
     "Windows worker orphan self-termination via os.kill(pid, 0) polling",
     "any NSIS installer build or run (spec only in v0.2)",
@@ -79,7 +79,7 @@ class TestWindowsCheckScript(unittest.TestCase):
         self.assertIn(result.returncode, (0, 1))
         self.assertIn("counts:", result.stdout)
         self.assertIn("NOT-RUN", result.stdout)
-        supervisor = (ROOT / "keyholder" / "supervisor.py").read_text(encoding="utf-8")
+        supervisor = (ROOT / "sealvra" / "supervisor.py").read_text(encoding="utf-8")
         ungated = "os.killpg" in supervisor or "os.getpgid" in supervisor
         if ungated and "sys.platform" not in supervisor:
             self.assertEqual(result.returncode, 1)
@@ -139,7 +139,7 @@ class TestWindowsCheckScript(unittest.TestCase):
         asserting the fixed state instead of the old failure.
         """
         mod = load_windows_check()
-        sup = ROOT / "keyholder" / "supervisor.py"
+        sup = ROOT / "sealvra" / "supervisor.py"
         tree = ast.parse(sup.read_text(encoding="utf-8"))
         findings = mod._scan_posix(tree, sup)
         if "os.killpg" in sup.read_text(encoding="utf-8"):
@@ -163,7 +163,7 @@ class TestWindowsGateLogicOnLinuxHost(unittest.TestCase):
         self.assertEqual(s.tier, "S2")
         self.assertTrue(s.same_user_direct_read)
         self.assertIn("user account, not the application", s.description)
-        self.assertIn("Hello step-up gates Keyholder-mediated use only", s.description)
+        self.assertIn("Hello step-up gates Sealvra-mediated use only", s.description)
 
     def test_hello_biometric_and_pin_are_distinct(self):
         bio = platform_mod.hello_tier(kind="biometric")
@@ -237,9 +237,9 @@ class _FakeWin32Process:
     def wait(self, timeout=None):
         self._wait_calls += 1
         if self._escalate and self._wait_calls == 1:
-            raise subprocess.TimeoutExpired("keyholder", timeout)
+            raise subprocess.TimeoutExpired("sealvra", timeout)
         if not self._dead:
-            raise subprocess.TimeoutExpired("keyholder", timeout)
+            raise subprocess.TimeoutExpired("sealvra", timeout)
         return 0
 
 
@@ -276,7 +276,7 @@ class TestSupervisorWin32MockedKill(unittest.TestCase):
         self.assertEqual(proc.kill_calls, 1)
 
     def test_spawn_guards_start_new_session_behind_nonwin_check(self):
-        src = (ROOT / "keyholder" / "supervisor.py").read_text(encoding="utf-8")
+        src = (ROOT / "sealvra" / "supervisor.py").read_text(encoding="utf-8")
         tree = ast.parse(src)
         mod = load_windows_check()
         guarded = False
@@ -309,7 +309,7 @@ class TestMockedVerifierHelperBoundary(unittest.TestCase):
         self.assertTrue(helper["return_value"].startswith("boolean only"))
         self.assertIn("CredUIPromptForWindowsCredentials", helper["process"])
         self.assertIn("LogonUser", helper["process"])
-        for path in (ROOT / "keyholder").rglob("*.py"):
+        for path in (ROOT / "sealvra").rglob("*.py"):
             if "__pycache__" in path.parts:
                 continue
             text = path.read_text(encoding="utf-8")
@@ -328,12 +328,12 @@ class TestMockedVerifierHelperBoundary(unittest.TestCase):
 class TestInstallerStaticCorrectness(unittest.TestCase):
     """Static (text-level) installer/uninstaller checks. These are NOT
     a PowerShell parse and NOT a Windows run; both of those are
-    NOT-RUN here (pwsh unavailable on this Linux VM)."""
+    NOT-RUN here when PowerShell is absent on the checking host."""
 
     def test_install_preserves_vault_and_resolves_launcher(self):
         text = (ROOT / "scripts" / "install.ps1").read_text(encoding="utf-8")
         self.assertIn("preserved untouched", text)
-        self.assertIn(r"%~dp0..\keyholder.pyz", text)
+        self.assertIn(r"%~dp0..\sealvra.pyz", text)
         self.assertIn("2>&1", text)
         for line in text.splitlines():
             if "Remove-Item" in line:
@@ -354,7 +354,7 @@ class TestInstallerStaticCorrectness(unittest.TestCase):
         self.assertIn("Type WIPE to confirm", wipe)
         self.assertTrue(wipe.find("Type WIPE to confirm") < wipe.find("Remove-Item -Recurse -Force $VaultDir"))
         self.assertIn("Join-Path $HomeDir", wipe)
-        self.assertIn("keyholder-wipe-receipt-", wipe)
+        self.assertIn("sealvra-wipe-receipt-", wipe)
         import re as _re
         m = _re.search(r'ToString\("([^"]+)"\)', wipe)
         self.assertIsNotNone(m)
@@ -383,7 +383,7 @@ class TestZipappHostRun(unittest.TestCase):
     Running under Windows Python is NOT-RUN, never claimed here."""
 
     def test_pyz_is_valid_zip_with_main_and_help_exits_zero(self):
-        pyz = ROOT / "dist" / "keyholder.pyz"
+        pyz = ROOT / "dist" / "sealvra.pyz"
         self.assertTrue(pyz.is_file())
         with zipfile.ZipFile(pyz) as zf:
             self.assertIn("__main__.py", zf.namelist())
@@ -399,7 +399,7 @@ class TestWindowsDocHonesty(unittest.TestCase):
         self.assertIn("NOT-RUN", text)
         self.assertIn("S2", text)
         self.assertIn("DPAPI", text)
-        self.assertNotIn("keyholder.exe", text)
+        self.assertNotIn("sealvra.exe", text)
 
     def test_doc_states_uninstall_rule(self):
         text = DOC.read_text(encoding="utf-8")

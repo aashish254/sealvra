@@ -3,7 +3,7 @@
 Proves CONTRACT §13.1 end to end with separate processes, not a
 process-local singleton:
 
-- ``keyholder daemon start`` in one CLI subprocess, ``status`` in
+- ``sealvra daemon start`` in one CLI subprocess, ``status`` in
   another, reporting the SAME daemon pid;
 - session create/list/kill issued from yet other subprocesses over
   the JSON-line IPC protocol (token exactly once, never in the
@@ -13,8 +13,19 @@ process-local singleton:
   including after a SIGKILLed daemon (stale rendezvous cleanup);
 - orphan workers self-terminate <= 5 s after daemon death;
 - socket directory 0700, socket 0600 (Unix); doctor states the
-  Tier B limit in plain words; audit.verify honestly reports
-  KH-1005 from the daemon (it owns no audit log).
+  Tier B limit in plain words; audit.verify over IPC runs the real
+  hash-chain verifier against the daemon's own audit root (v0.2
+  Phase 1 wired the root in; the KH-1005 stub answer is gone).
+
+v0.2 Phase 1 fixture change, stated honestly: the detached daemon now
+composes the real object graph (runtime: proxy + vault + audit), so
+every test here runs in SEALVRA_TEST_MODE with an isolated wrapping-key
+file, an isolated vault and audit root, loopback mock upstream bases and
+an ephemeral proxy port. Sessions are bound to real TEST-ONLY
+compartments created through the vault -- the old synthetic key ids that
+no vault held are exactly what the wired daemon now refuses (KH-1002),
+and refusing them is the behaviour under test. No assertion was removed
+or weakened; the fixtures were made real.
 
 No real keys/tokens/credentials: all values are TEST-ONLY fakes.
 Loopback only; no network, no GitHub, no provider contact.
@@ -38,20 +49,38 @@ if str(ROOT) not in sys.path:
 
 
 def _proc_has_session(session_id: str) -> bool:
-    """True if any live process cmdline mentions this session id."""
+    """True if any live process cmdline mentions this session id.
+
+    /proc on Linux, ``ps`` on macOS/BSD. A worker's argv always carries
+    its session id (``python -m sealvra.supervisor --worker
+    <session_id> ...``), so both scans look for the same thing. On a
+    platform with neither this raises: answering False there would
+    report "no worker" for a probe that never ran, which is a false pass
+    for the teardown assertions, not an honest NOT-RUN.
+    """
     proc = Path("/proc")
-    if not proc.is_dir():
+    if proc.is_dir():
+        for entry in proc.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                cmdline = (entry / "cmdline").read_bytes()
+            except OSError:
+                continue
+            if session_id.encode() in cmdline:
+                return True
         return False
-    for entry in proc.iterdir():
-        if not entry.name.isdigit():
-            continue
-        try:
-            cmdline = (entry / "cmdline").read_bytes()
-        except OSError:
-            continue
-        if session_id.encode() in cmdline:
-            return True
-    return False
+    try:
+        out = subprocess.run(["ps", "-ax", "-o", "args="],
+                             capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise AssertionError(
+            "no process scan on this platform: worker presence is NOT-RUN, "
+            "not absent (%r)" % (exc,)) from None
+    if out.returncode != 0:
+        raise AssertionError("ps failed: worker presence is NOT-RUN, not "
+                             "absent (%s)" % out.stderr[:200])
+    return any(session_id in line for line in out.stdout.splitlines())
 
 
 def _wait_until(predicate, timeout_s: float, interval: float = 0.1) -> bool:
@@ -65,10 +94,26 @@ def _wait_until(predicate, timeout_s: float, interval: float = 0.1) -> bool:
 
 class DaemonIPCTestCase(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.mkdtemp(prefix="keyholder-ipc-test-")
+        tmp = tempfile.mkdtemp(prefix="sealvra-ipc-test-")
         self.daemon_dir = Path(tmp) / "daemon"
         self.env = dict(os.environ)
-        self.env["KEYHOLDER_DAEMON_DIR"] = str(self.daemon_dir)
+        self.env["SEALVRA_DAEMON_DIR"] = str(self.daemon_dir)
+        # Isolated test-mode object graph (see the module docstring).
+        self.vault_dir = Path(tmp) / "vault"
+        self.audit_dir = Path(tmp) / "audit"
+        wrapping_key = Path(tmp) / "wrapping_key.hex"
+        wrapping_key.write_text("11" * 32, encoding="utf-8")
+        os.chmod(wrapping_key, 0o600)
+        self.env.update({
+            "SEALVRA_TEST_MODE": "1",
+            "SEALVRA_TEST_APPROVER": "1",
+            "SEALVRA_TEST_WRAPPING_KEY_FILE": str(wrapping_key),
+            "SEALVRA_VAULT_DIR": str(self.vault_dir),
+            "SEALVRA_AUDIT_ROOT": str(self.audit_dir),
+            "SEALVRA_PROXY_PORT": "0",
+            "SEALVRA_MOCK_GITHUB_BASE": "http://127.0.0.1:18765",
+            "SEALVRA_MOCK_GEMINI_BASE": "http://127.0.0.1:18766",
+        })
         self.env["PYTHONPATH"] = str(ROOT) + os.pathsep + self.env.get(
             "PYTHONPATH", "")
         self.addCleanup(self._force_cleanup)
@@ -104,7 +149,7 @@ class DaemonIPCTestCase(unittest.TestCase):
 
     def cli(self, *argv: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [sys.executable, "-m", "keyholder", *argv],
+            [sys.executable, "-m", "sealvra", *argv],
             cwd=str(ROOT), env=self.env, capture_output=True, text=True,
             timeout=60)
 
@@ -115,7 +160,7 @@ class DaemonIPCTestCase(unittest.TestCase):
         script = (
             "import json, sys; sys.path.insert(0, %r)\n"
             "from pathlib import Path\n"
-            "from keyholder.daemon import DaemonClient, DaemonError\n"
+            "from sealvra.daemon import DaemonClient, DaemonError\n"
             "try:\n"
             "    result = DaemonClient(Path(%r)).request(%r, %r)\n"
             "    print(json.dumps({'ok': True, 'result': result}))\n"
@@ -134,6 +179,24 @@ class DaemonIPCTestCase(unittest.TestCase):
         reply = self.ipc(cmd, args)
         self.assertTrue(reply.get("ok"), reply)
         return reply["result"]
+
+    def add_key(self, provider: str, label: str) -> str:
+        """Mint one real TEST-ONLY compartment in this test's vault.
+
+        Runs in a subprocess with the same fixture env, so the daemon and
+        the CLI see the same store. The value is a fake, never a key.
+        """
+        fake = "TEST-ONLY-IPC-%s-FAKE-KEY-0001" % provider.upper()
+        script = (
+            "import os, sys; sys.path.insert(0, %r)\n"
+            "from sealvra import vault\n"
+            "print(vault.add_key(%r, %r, %r, False).key_id)\n"
+            % (str(ROOT), provider, label, fake))
+        proc = subprocess.run([sys.executable, "-c", script],
+                              cwd=str(ROOT), env=self.env,
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip().splitlines()[-1]
 
     def start_daemon(self) -> int:
         proc = self.cli("daemon", "start")
@@ -173,8 +236,9 @@ class DaemonIPCTestCase(unittest.TestCase):
 
     def test_create_list_kill_from_other_processes_token_once(self):
         self.start_daemon()
+        key_id = self.add_key("github", "ipc-github")
         created = self.ipc_ok("sessions.create", {
-            "key_id": "key-TEST-ONLY-9101", "provider": "github",
+            "key_id": key_id, "provider": "github",
             "session_class": "read_public"})
         token = created["token"]
         session_id = created["session"]["session_id"]
@@ -200,18 +264,44 @@ class DaemonIPCTestCase(unittest.TestCase):
         bogus = self.ipc("bogus.command")
         self.assertEqual(bogus.get("code"), "KH-2001")
 
-    def test_audit_verify_honestly_unavailable_from_daemon(self):
-        # The daemon owns no audit log; it must say so (KH-1005),
-        # never fabricate a verification result.
+    def test_sessions_create_refuses_a_key_the_vault_does_not_hold(self):
+        # A session must be bound to a stored compartment. An id no
+        # vault holds is refused before a token can exist (v0.2 Phase 1:
+        # the daemon gates creation on the verified vault record).
         self.start_daemon()
-        reply = self.ipc("audit.verify")
+        reply = self.ipc("sessions.create", {
+            "key_id": "key-TEST-ONLY-9199", "provider": "github",
+            "session_class": "read_public"})
         self.assertFalse(reply.get("ok"))
-        self.assertEqual(reply.get("code"), "KH-1005")
+        self.assertEqual(reply.get("code"), "KH-1002")
+
+    def test_audit_verify_runs_the_real_verifier_over_ipc(self):
+        # Was test_audit_verify_honestly_unavailable_from_daemon, which
+        # asserted the KH-1005 stub. The daemon now owns a real audit
+        # root, so the stub answer is gone and this asserts the real
+        # chain: starting the daemon writes the genesis/chain_created
+        # entry, and IPC verification must report it as a verified
+        # chain (OK, exit 0) rather than a fabricated result.
+        self.start_daemon()
+        result = self.ipc_ok("audit.verify")
+        self.assertEqual(result["status"], "OK", result)
+        self.assertEqual(result["exit_code"], 0)
+        self.assertGreaterEqual(result["entries"], 1)
+        self.assertTrue((self.audit_dir / "audit" / "audit.jsonl").exists())
+        self.assertEqual(Path(result["root"]), self.audit_dir)
+        # An IPC caller cannot point the verifier at some other root:
+        # a "root" argument is ignored, and the answer still describes
+        # this daemon's own chain. Tamper detection itself is covered by
+        # the audit module's own suite, not re-proved here.
+        other = self.ipc_ok("audit.verify", {"root": "/nonexistent-root"})
+        self.assertEqual(other["status"], "OK", other)
+        self.assertEqual(Path(other["root"]), self.audit_dir)
 
     def test_stop_kills_workers_and_restart_has_no_sessions(self):
         self.start_daemon()
+        key_id = self.add_key("gemini", "ipc-gemini")
         created = self.ipc_ok("sessions.create", {
-            "key_id": "key-TEST-ONLY-9102", "provider": "gemini",
+            "key_id": key_id, "provider": "gemini",
             "session_class": "read_public"})
         session_id = created["session"]["session_id"]
         self.assertTrue(_wait_until(
@@ -228,8 +318,9 @@ class DaemonIPCTestCase(unittest.TestCase):
 
     def test_daemon_death_orphans_workers_and_stale_restart(self):
         pid = self.start_daemon()
+        key_id = self.add_key("github", "ipc-github-orphan")
         created = self.ipc_ok("sessions.create", {
-            "key_id": "key-TEST-ONLY-9103", "provider": "github",
+            "key_id": key_id, "provider": "github",
             "session_class": "read_public"})
         session_id = created["session"]["session_id"]
         self.assertTrue(_wait_until(

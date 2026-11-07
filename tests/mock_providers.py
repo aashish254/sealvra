@@ -1,4 +1,4 @@
-"""Mock providers for Keyholder v0.1 end-to-end tests (W15).
+"""Mock providers for Sealvra v0.1 end-to-end tests (W15).
 
 Loopback ONLY. Fake TEST-ONLY keys ONLY. No contact with GitHub, Google,
 or any real provider. Nothing here is a real credential, and nothing

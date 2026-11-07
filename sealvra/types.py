@@ -1,4 +1,4 @@
-"""Shared types for Keyholder v0.1 (W01-owned, CONTRACT §2).
+"""Shared types for Sealvra v0.1 (W01-owned, CONTRACT §2).
 
 Normative shapes: names and fields below match CONTRACT §2 exactly.
 Extra fields are optional (defaulted) so other workers' imports keep

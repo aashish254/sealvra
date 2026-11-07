@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""macOS verification for Keyholder v0.1 (W17).
+"""macOS verification for Sealvra v0.1 (W17).
 
-Runs on this Linux VM and checks everything checkable WITHOUT a Mac:
+Runs on the checking host, whatever platform that is, and checks
+everything checkable WITHOUT a Mac:
 
   C1  every Python file under the build root compiles (compileall equivalent)
-  C2  no Linux-only import is used outside keyholder/platform.py
-  C3  no macOS behaviour is implemented outside keyholder/platform.py
-  C4  macOS design interfaces are present in keyholder/platform.py
+  C2  no Linux-only import is used outside sealvra/platform.py
+  C3  no macOS behaviour is implemented outside sealvra/platform.py
+  C4  macOS design interfaces are present in sealvra/platform.py
       (Keychain one-item-per-key, .userPresence + enrolment-change
       detection, .biometryCurrentSet strict-mode opt-in only, sandboxed
       approver design, Touch ID as gesture not authorisation)
@@ -21,8 +22,8 @@ Runs on this Linux VM and checks everything checkable WITHOUT a Mac:
       build here — see docs/macos.md)
   C8  macOS readiness, per area (Keychain one-item-per-key, Touch ID
       two-step, sandboxed approver XPC, DMG/packaging, daemon IPC on
-      macOS): design markers are checked in keyholder/platform.py,
-      keyholder/approval.py, keyholder/vault.py and keyholder/daemon.py
+      macOS): design markers are checked in sealvra/platform.py,
+      sealvra/approval.py, sealvra/vault.py and sealvra/daemon.py
       plus packaging files. A present design is reported SPEC-ONLY
       (never READY, never PASSED — the native behaviour is NOT-RUN
       without a Mac). A missing design marker is a GAP, reported in
@@ -45,7 +46,7 @@ What this script CANNOT check (recorded as NOT-RUN, never PASSED):
   Those need the M5 Mac test plan in docs/macos.md.
 
 Exit codes: 0 = no checkable violation found (gaps in C4 are reported
-separately and do NOT flip the exit code, because keyholder/platform.py
+separately and do NOT flip the exit code, because sealvra/platform.py
 is W13's file area — W17 reports the gap, it does not write W13's file).
 1 = a checkable violation (compile failure, Linux-only leak, fake
 success stub, unapproved dependency, binary artifact).
@@ -82,7 +83,7 @@ APPROVED_THIRD_PARTY = {"cryptography", "argon2_cffi", "argon2"}
 BINARY_SUFFIXES = {".so", ".dylib", ".pyd", ".dll", ".o"}
 
 # (interface id, description, marker strings — at least one must appear
-# in keyholder/platform.py for the interface to count as PRESENT)
+# in sealvra/platform.py for the interface to count as PRESENT)
 MACOS_INTERFACES = [
     (
         "keychain-one-item-per-key",
@@ -107,9 +108,9 @@ MACOS_INTERFACES = [
     ),
     (
         "sandboxed-approver",
-        "Sandboxed, unprivileged XPC keyholder-approver as the ONLY "
+        "Sandboxed, unprivileged XPC sealvra-approver as the ONLY "
         "approval renderer (v3 N-E1)",
-        ["keyholder-approver", "approver", "XPC"],
+        ["sealvra-approver", "approver", "XPC"],
     ),
     (
         "touch-id-gesture-not-authorisation",
@@ -161,7 +162,7 @@ def scan_imports(root: Path):
     """C2/C6: per-file import findings.
 
     Returns (violations, findings): a Linux-only import outside
-    keyholder/platform.py is a violation; an unapproved third-party
+    sealvra/platform.py is a violation; an unapproved third-party
     import anywhere is a violation; anything else is informational.
     """
     violations = []
@@ -174,7 +175,7 @@ def scan_imports(root: Path):
             continue  # C1 already reports the compile failure
         rel = str(path.relative_to(root))
         # Manager integration fix (v0.2): C6 gates SHIPPED dependencies
-        # (the zipapp packs keyholder/ only). Test files are not
+        # (the zipapp packs sealvra/ only). Test files are not
         # shipped, and an optional test-only import guarded by
         # try/except ImportError -> skipTest (PyYAML in
         # tests/test_w20_packaging.py) is an honest NOT-RUN, not a
@@ -183,7 +184,7 @@ def scan_imports(root: Path):
         # product-code scan.
         if rel.startswith("tests/"):
             continue
-        is_platform = rel == "keyholder/platform.py"
+        is_platform = rel == "sealvra/platform.py"
         for node in ast.walk(tree):
             names = []
             if isinstance(node, ast.Import):
@@ -196,7 +197,7 @@ def scan_imports(root: Path):
                 names = [node.module]
             for name in names:
                 top = _top_module(name)
-                if top == "keyholder":
+                if top == "sealvra":
                     continue  # the project's own package, not a dependency
                 # Manager integration fix: first-party test helpers
                 # (tests/adversarial_helpers.py, tests/mock_providers.py,
@@ -210,7 +211,7 @@ def scan_imports(root: Path):
                 if top in LINUX_ONLY_MODULES and not is_platform:
                     violations.append(
                         f"{rel}: Linux-only import '{name}' outside "
-                        "keyholder/platform.py"
+                        "sealvra/platform.py"
                     )
                 elif top not in stdlib and top not in APPROVED_THIRD_PARTY:
                     violations.append(
@@ -226,7 +227,7 @@ def scan_imports(root: Path):
 
 
 def scan_macos_outside_platform(root: Path):
-    """C3: macOS API names used outside keyholder/platform.py.
+    """C3: macOS API names used outside sealvra/platform.py.
 
     Informational, not a violation on its own: a doc or a test may
     mention them. It becomes a violation only together with C5 (a stub
@@ -236,7 +237,7 @@ def scan_macos_outside_platform(root: Path):
                "kSecAttrAccessible", "biometryCurrentSet")
     hits = []
     for path in iter_py_files(root):
-        if str(path.relative_to(root)) == "keyholder/platform.py":
+        if str(path.relative_to(root)) == "sealvra/platform.py":
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         for marker in markers:
@@ -251,11 +252,11 @@ def check_macos_interfaces(root: Path):
     ABSENT is a gap for W13/manager, not a W17 violation and not a
     failure of this script — it is reported, never papered over.
     """
-    platform_py = root / "keyholder" / "platform.py"
+    platform_py = root / "sealvra" / "platform.py"
     if not platform_py.exists():
         return [
             {"id": iface_id, "description": desc, "status": "ABSENT",
-             "reason": "keyholder/platform.py does not exist yet (W13 owns it)"}
+             "reason": "sealvra/platform.py does not exist yet (W13 owns it)"}
             for iface_id, desc, _ in MACOS_INTERFACES
         ]
     text = platform_py.read_text(encoding="utf-8", errors="replace")
@@ -335,14 +336,19 @@ def check_binary_artifacts(root: Path):
     return found
 
 
-# Checks that can never pass on this Linux VM. Listed explicitly so a
-# reader can never mistake "checked here" for "tested on a Mac".
-NOT_RUN_ON_LINUX = [
+# Checks this script does not perform, whatever host runs it. Listed
+# explicitly so a reader can never mistake "checked here" for "tested
+# on a Mac". "NOT-RUN here" means not covered by this static script
+# only: some items (for example cross-process daemon IPC) are exercised
+# by the unittest suite when it runs on a real Mac, and the suite's own
+# per-test result is the authority for those -- never this list.
+NOT_RUN_HERE = [
     {"check": "Real macOS Keychain store/retrieve (Security framework)",
-     "reason": "Requires macOS Security framework; this VM is Linux"},
+     "reason": "Requires the macOS Security framework; the checking host "
+                "is %s" % sys.platform},
     {"check": "Touch ID / LAContext biometric prompt",
      "reason": "Requires macOS LocalAuthentication + enrolled biometrics"},
-    {"check": "Sandboxed approver XPC service (keyholder-approver)",
+    {"check": "Sandboxed approver XPC service (sealvra-approver)",
      "reason": "Requires macOS XPC + sandbox profiles + code signing"},
     {"check": "DMG install + Gatekeeper notarisation check",
      "reason": "No macOS binary is produced here; DMG shape is spec only"},
@@ -357,7 +363,12 @@ NOT_RUN_ON_LINUX = [
     {"check": "XPC approver code-signing identity check + sandbox profile",
      "reason": "Requires the built XPC service, a signing identity, and macOS"},
     {"check": "Daemon Unix-socket IPC on macOS (v0.2 §13.1)",
-     "reason": "Requires running the cross-process daemon on macOS"},
+     "reason": "Requires the daemon installed as a launchd/service-manager "
+               "job on macOS. The C8 status here is a design-marker read, "
+               "not a run statement: the cross-process daemon itself DID "
+               "run on this host in v0.2 Phase 1/3 (0700 dir, 0600 "
+               "control.sock observed with stat, peer-UID accept, tests/"
+               "test_daemon_ipc.py 8/8 ok) — see docs/macos.md §1.1"},
     {"check": "Screen-lock suspend + kill after 15 min locked on macOS",
      "reason": "Requires a locked macOS session and a 15-minute wait"},
     {"check": "Keychain ACL Tier B separation (same-user read attempt)",
@@ -379,7 +390,7 @@ READINESS_AREAS = [
         "per-app access group, .userPresence default, enrolment-change "
         "step-up, .biometryCurrentSet strict opt-in + re-wrap, no "
         "vault-wide KEK item (v3 N-D1/N-D2)",
-        ("keyholder/platform.py", "keyholder/vault.py"),
+        ("sealvra/platform.py", "sealvra/vault.py"),
         [
             ["one Keychain item per", "one item per key"],
             ["access group"],
@@ -396,7 +407,7 @@ READINESS_AREAS = [
         "Touch ID: gesture FIRST, explicit confirm SECOND, in that "
         "order; fresh LAContext per approval, reuse duration zero; "
         "biometric-only only for identical-scope re-approval (v3 N-E2)",
-        ("keyholder/platform.py", "keyholder/approval.py"),
+        ("sealvra/platform.py", "sealvra/approval.py"),
         [
             ["gesture"],
             ["explicit confirm"],
@@ -408,14 +419,14 @@ READINESS_AREAS = [
     ),
     (
         "sandboxed-approver-xpc",
-        "Sandboxed approver: unprivileged XPC keyholder-approver, ONLY "
+        "Sandboxed approver: unprivileged XPC sealvra-approver, ONLY "
         "approval renderer, metadata only, signed single-use decision "
         "bound to the request hash, UI never originates, enclave-bound "
         "signature for HIGH/CRITICAL, code-signing identity check "
         "(v3 N-E1)",
-        ("keyholder/platform.py", "keyholder/approval.py"),
+        ("sealvra/platform.py", "sealvra/approval.py"),
         [
-            ["keyholder-approver"],
+            ["sealvra-approver"],
             ["unprivileged"],
             ["metadata only"],
             ["signed", "single-use"],
@@ -444,7 +455,7 @@ READINESS_AREAS = [
         "Daemon IPC on macOS (v0.2 §13.1): Unix domain socket on "
         "darwin, socket/dir permissions, Tier B honesty (peer-UID "
         "does NOT separate same-user processes)",
-        ("keyholder/daemon.py",),
+        ("sealvra/daemon.py",),
         [
             ["AF_UNIX"],
             ["darwin"],
@@ -458,7 +469,7 @@ READINESS_AREAS = [
 # signing identity. If one ever appears, it is listed, not celebrated
 # — an unverified artifact is not proof.
 EXPECTED_NATIVE_GAPS = [
-    ("XPC service bundle / launchd plist for keyholder-approver",
+    ("XPC service bundle / launchd plist for sealvra-approver",
      ("*.plist",)),
     ("macOS sandbox profile (.sb) for the approver",
      ("*.sb",)),
@@ -528,14 +539,19 @@ def check_doc_honesty(root: Path):
         return {"checked": False}, []
     text = _read_if_exists(doc)
     low = text.lower()
-    headline_ok = "nothing in this document was run on a Mac" in text
+    # The required headline states the honest invariant: nothing native
+    # is proven. It must NOT claim the suite never ran on a Mac, because
+    # the suite does now run on macOS (v0.2 Phase 1/3) -- and that run
+    # proves no native API behaviour, which is what this headline guards.
+    headline_ok = ("no native macos behaviour is implemented or proven"
+                   in low)
     testonly_ok = "TEST-ONLY" in text
     order_ok = "gesture first" in low and "confirm second" in low
     violations = []
     if not headline_ok:
         violations.append(
             "docs/macos.md: missing NOT-RUN headline "
-            "('nothing in this document was run on a Mac')")
+            "('no native macOS behaviour is implemented or proven')")
     if not testonly_ok:
         violations.append("docs/macos.md: missing TEST-ONLY wording")
     return {
@@ -588,7 +604,7 @@ def run(root: Path):
         "readiness_gaps": readiness_gaps,
         "native_macos_artifacts_present": native_present,
         "doc_honesty": doc_honesty,
-        "not_run_here": NOT_RUN_ON_LINUX,
+        "not_run_here": NOT_RUN_HERE,
         "aarch64_note": (
             "Python source is architecture-independent: no compiled "
             "macOS binary is produced here, so there is no "
@@ -603,7 +619,7 @@ def run(root: Path):
 
 def render_human(report: dict) -> str:
     lines = [
-        "Keyholder macOS check (W17) — run on Linux, macOS-real checks NOT-RUN",
+        "Sealvra macOS check (W17) — run on Linux, macOS-real checks NOT-RUN",
         f"root: {report['root']}  platform: {report['platform']}",
         "",
         f"C1 compile: {report['compile']['checked']} files checked, "
@@ -617,7 +633,7 @@ def render_human(report: dict) -> str:
     )
     for violation in report["linux_only_imports_outside_platform"]:
         lines.append(f"  VIOLATION {violation}")
-    lines.append("C4 macOS interfaces in keyholder/platform.py:")
+    lines.append("C4 macOS interfaces in sealvra/platform.py:")
     for iface in report["macos_interfaces"]:
         lines.append(f"  {iface['status']}: {iface['id']} — {iface['description']}")
     lines.append(f"C5 fake-success stubs: {len(report['fake_success_stubs'])}")

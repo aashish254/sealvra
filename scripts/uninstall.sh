@@ -1,5 +1,5 @@
 #!/bin/sh
-# Keyholder v0.1 uninstaller (Linux / macOS) -- W20.
+# Sealvra v0.1 uninstaller (Linux / macOS) -- W20.
 #
 # DEFAULT BEHAVIOUR: remove the PROGRAM only (zipapp + launcher).
 # Vault data, platform-keychain items, and audit data are PRESERVED
@@ -34,12 +34,12 @@
 #   scripts/uninstall.sh --wipe-data --confirm-wipe [--prefix DIR]
 #                        [--vault-dir DIR]
 # Defaults: prefix = $HOME/.local,
-# vault dir = ${KEYHOLDER_HOME:-$HOME/.keyholder}.
+# vault dir = ${SEALVRA_HOME:-$HOME/.sealvra}.
 
 set -eu
 
 PREFIX="$HOME/.local"
-VAULT_DIR="${KEYHOLDER_HOME:-$HOME/.keyholder}"
+VAULT_DIR="${SEALVRA_HOME:-$HOME/.sealvra}"
 WIPE=0
 CONFIRM_WIPE=0
 
@@ -65,8 +65,8 @@ if [ "$WIPE" -eq 1 ] && [ "$CONFIRM_WIPE" -ne 1 ]; then
     exit 1
 fi
 
-PROGRAM_DIR="$PREFIX/share/keyholder"
-LAUNCHER="$PREFIX/bin/keyholder"
+PROGRAM_DIR="$PREFIX/share/sealvra"
+LAUNCHER="$PREFIX/bin/sealvra"
 
 # Kill live sessions first (best effort; a missing launcher or a
 # stopped daemon is not an error here -- the program is being removed).
@@ -77,7 +77,7 @@ fi
 # Remove the program (always; this is the default action too).
 rm -f "$LAUNCHER"
 rm -rf "$PROGRAM_DIR"
-echo "removed keyholder program and launcher."
+echo "removed sealvra program and launcher."
 
 if [ "$WIPE" -eq 0 ]; then
     echo "preserved (NOT deleted): vault data, platform-keychain items, and audit data."
@@ -99,7 +99,7 @@ fi
 
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 RECORD="{\"event_type\": \"vault_wipe\", \"ts\": \"$TS\", \"vault_dir_removed\": true, \"note\": \"local wipe only; provider-side keys NOT revoked\"}"
-RECEIPT="$HOME/keyholder-wipe-receipt-$TS.json"
+RECEIPT="$HOME/sealvra-wipe-receipt-$TS.json"
 # Pre-wipe record: append to the vault audit log first (if a vault
 # exists), then to a receipt OUTSIDE the vault so it survives deletion.
 if [ -d "$VAULT_DIR" ]; then
@@ -112,5 +112,5 @@ rm -rf "$VAULT_DIR"
 echo "deleted vault directory: $VAULT_DIR"
 echo "wipe receipt kept at: $RECEIPT"
 echo "manual step (not done by this script): remove any platform-keychain"
-echo "items for Keyholder, and rotate/revoke the keys at GitHub / Gemini,"
+echo "items for Sealvra, and rotate/revoke the keys at GitHub / Gemini,"
 echo "because wiping local data does NOT revoke provider-side keys."

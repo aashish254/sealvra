@@ -8,7 +8,7 @@ synced folders, 24 h full-vault cooldown, restore kill-gate).
 
 Run from the build root:  python3 -m unittest tests.test_w02_vault -v
 (or with the .venv interpreter). Tests insert the build root into
-sys.path so the keyholder package imports without installation.
+sys.path so the sealvra package imports without installation.
 """
 
 import base64
@@ -21,9 +21,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from keyholder import crypto, vault
-from keyholder.crypto import CryptoTamperError
-from keyholder.vault import (
+from sealvra import crypto, vault
+from sealvra.crypto import CryptoTamperError
+from sealvra.vault import (
     AuthRequired,
     BackupRefused,
     CompartmentExists,

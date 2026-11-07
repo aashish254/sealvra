@@ -21,7 +21,7 @@ CASE_COUNT = len(CASES)
 import json
 import tempfile
 from pathlib import Path
-from keyholder.audit import (
+from sealvra.audit import (
     AuditLog, SecretDetectedError, SecretScrubber, entry_hash_of, pseudonym,
 )
 

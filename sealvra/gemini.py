@@ -1,7 +1,7 @@
-"""Gemini adapter for Keyholder v0.1 (W07, rewritten per audit f08 / v3 §1I).
+"""Gemini adapter for Sealvra v0.1 (W07, rewritten per audit f08 / v3 §1I).
 
-Normative sources: ~/workspace/keyholder-build/CONTRACT.md §7 (Gemini) and
-KEYHOLDER-PLAN-V3-FINALCHECK.md §1I (N-I1..N-I6). v3 wins over v1/v2; the old
+Normative sources: ~/workspace/sealvra-build/CONTRACT.md §7 (Gemini) and
+SEALVRA-PLAN-V3-FINALCHECK.md §1I (N-I1..N-I6). v3 wins over v1/v2; the old
 R06 text is NOT a source for this module.
 
 Auth-key model ONLY

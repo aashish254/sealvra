@@ -1,4 +1,4 @@
-"""Tests for keyholder/proxy.py (W04, CONTRACT §6, v3 §1G).
+"""Tests for sealvra/proxy.py (W04, CONTRACT §6, v3 §1G).
 
 STUBS ONLY: the broker (W01/W03), policy (W05), approver (W08), audit
 (W09), and vault (W02) modules are not all finished, so every boundary
@@ -11,7 +11,7 @@ or any real provider. Mock ports are ephemeral (port 0), never the
 W15 fixed ports, so this suite cannot clash with the E2E run.
 
 Run:  python3 -m unittest tests.test_w04_proxy -v
-  (from ~/workspace/keyholder-build)
+  (from ~/workspace/sealvra-build)
 """
 
 import gzip
@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from keyholder.proxy import (  # noqa: E402
+from sealvra.proxy import (  # noqa: E402
     GENERIC_DENIAL_BODY,
     HOST_ONLY_LABEL,
     ProxyConfig,
@@ -37,8 +37,8 @@ from keyholder.proxy import (  # noqa: E402
     make_server,
     validate_loopback_host,
 )
-from keyholder.tokens import sign_request  # noqa: E402
-from keyholder.types import PolicyDecision, Session  # noqa: E402
+from sealvra.tokens import sign_request  # noqa: E402
+from sealvra.types import PolicyDecision, Session  # noqa: E402
 
 FAKE_GITHUB_KEY = "TEST-ONLY-GITHUB-FAKE-KEY-0001"
 FAKE_GEMINI_KEY = "TEST-ONLY-GEMINI-FAKE-KEY-0001"
@@ -105,7 +105,7 @@ class _MockHandler(BaseHTTPRequestHandler):
             payload = {
                 "authorization": self.headers.get("Authorization", ""),
                 "x-goog-api-key": self.headers.get("x-goog-api-key", ""),
-                "session_header_seen": self.headers.get("X-Keyholder-Session") is not None,
+                "session_header_seen": self.headers.get("X-Sealvra-Session") is not None,
                 "accept_encoding": self.headers.get("Accept-Encoding", ""),
                 "path": parsed.path,
                 "query": parsed.query,
@@ -281,9 +281,9 @@ def signed_for(session, base, method, target, body=b"", host_header=None,
     ts = int(timestamp) if timestamp is not None else int(time.time())
     pop, ts = sign_request(pop_key, method, canon.host,
                            canon.canonical_path, body, ts)
-    headers = [("X-Keyholder-Session", token),
-               ("X-Keyholder-PoP", pop),
-               ("X-Keyholder-Timestamp", str(ts))]
+    headers = [("X-Sealvra-Session", token),
+               ("X-Sealvra-PoP", pop),
+               ("X-Sealvra-Timestamp", str(ts))]
     if host_header:
         headers.append(("Host", host_header))
     if extra:
@@ -301,7 +301,7 @@ class TestAbsoluteFormAndInjection(ProxyTestBase):
         last = self.mock.state.last["ok"]
         self.assertEqual(last["headers"].get("authorization"),
                          "Bearer " + FAKE_GITHUB_KEY)
-        self.assertIsNone(last["headers"].get("x-keyholder-session"))
+        self.assertIsNone(last["headers"].get("x-sealvra-session"))
         self.assertEqual(stubs.success_calls, ["sess-test0000000001"])
 
     def test_origin_form_forwards_with_matching_host(self):
@@ -348,7 +348,7 @@ class TestAbsoluteFormAndInjection(ProxyTestBase):
             canonicalise_target(self.base + "/ok?key=EVIL", None,
                                 self.base, test_mode=True)
         resp = engine.handle("GET", self.base + "/ok?key=EVIL",
-                             [("X-Keyholder-Session", TOKEN)])
+                             [("X-Sealvra-Session", TOKEN)])
         self.assertEqual(resp.status, 400)
         self.assertEqual(self.mock.state.hits.get("ok"), None)
 
@@ -398,7 +398,7 @@ class TestCanonicalisationAttacks(ProxyTestBase):
         session = _make_session()
         engine, _ = self.make_engine(session)
         resp = engine.handle("GET", self.base + "/ok%00",
-                             [("X-Keyholder-Session", TOKEN)])
+                             [("X-Sealvra-Session", TOKEN)])
         self.assertEqual(resp.status, 400)
         self.assertEqual(self.mock.state.hits.get("ok"), None)
 
@@ -434,7 +434,7 @@ class TestSessionAndPoP(ProxyTestBase):
         session = _make_session()
         engine, _ = self.make_engine(session)
         resp = engine.handle("GET", self.base + "/ok",
-                             [("X-Keyholder-Session", TOKEN)])
+                             [("X-Sealvra-Session", TOKEN)])
         self.assertEqual(resp.status, 401)
         self.assertEqual(self.mock.state.hits.get("ok"), None)
 
@@ -675,7 +675,7 @@ class TestConnectAndLoopback(ProxyTestBase):
         engine, _ = self.make_engine(session)
         decision = engine.authorize_connect(
             "127.0.0.1:%d" % self.port,
-            [("X-Keyholder-Session", TOKEN)])
+            [("X-Sealvra-Session", TOKEN)])
         self.assertFalse(decision.allowed)
 
     def test_connect_refused_for_write_session_even_when_opted_in(self):
@@ -684,7 +684,7 @@ class TestConnectAndLoopback(ProxyTestBase):
         engine, _ = self.make_engine(session)
         decision = engine.authorize_connect(
             "127.0.0.1:%d" % self.port,
-            [("X-Keyholder-Session", TOKEN)])
+            [("X-Sealvra-Session", TOKEN)])
         self.assertFalse(decision.allowed)
 
     def test_connect_opt_in_labels_host_only_policy(self):
@@ -695,9 +695,9 @@ class TestConnectAndLoopback(ProxyTestBase):
         pop, ts = sign_request(POP_KEY, "CONNECT", host, "/", b"", None)
         decision = engine.authorize_connect(
             "127.0.0.1:%d" % self.port,
-            [("X-Keyholder-Session", TOKEN),
-             ("X-Keyholder-PoP", pop),
-             ("X-Keyholder-Timestamp", str(ts))])
+            [("X-Sealvra-Session", TOKEN),
+             ("X-Sealvra-PoP", pop),
+             ("X-Sealvra-Timestamp", str(ts))])
         self.assertTrue(decision.allowed)
         entry = [e for k, e in stubs.audit_entries if k == "decision"][0]
         self.assertEqual(entry["transport_label"], HOST_ONLY_LABEL)
@@ -827,9 +827,9 @@ class TestLiveServerSmuggling(ProxyTestBase):
                 sock.sendall(
                     b"CONNECT 127.0.0.1:%d HTTP/1.1\r\n"
                     b"Host: 127.0.0.1:%d\r\n"
-                    b"X-Keyholder-Session: %s\r\n"
-                    b"X-Keyholder-PoP: %s\r\n"
-                    b"X-Keyholder-Timestamp: %s\r\n\r\n"
+                    b"X-Sealvra-Session: %s\r\n"
+                    b"X-Sealvra-PoP: %s\r\n"
+                    b"X-Sealvra-Timestamp: %s\r\n\r\n"
                     % (self.port, self.port, TOKEN.encode(), pop.encode(),
                        str(ts).encode()))
                 head = b""
@@ -932,9 +932,9 @@ class TestW11QueryCanonicalisation(ProxyTestBase):
         # and rejects), so dummy session headers suffice: the
         # engine rejects at canonicalisation, before PoP.
         target = self.base + "/ok?%6bey=EVIL"
-        headers = [("X-Keyholder-Session", TOKEN),
-                   ("X-Keyholder-PoP", "00"),
-                   ("X-Keyholder-Timestamp", str(int(time.time())))]
+        headers = [("X-Sealvra-Session", TOKEN),
+                   ("X-Sealvra-PoP", "00"),
+                   ("X-Sealvra-Timestamp", str(int(time.time())))]
         resp = engine.handle("GET", target, headers)
         self.assertEqual(resp.status, 400)
         self.assertEqual(resp.body, GENERIC_DENIAL_BODY)
@@ -1062,9 +1062,9 @@ class TestW11ConnectAuditSurfaces(ProxyTestBase):
                 sock.sendall(
                     b"CONNECT 127.0.0.1:%d HTTP/1.1\r\n"
                     b"Host: 127.0.0.1:%d\r\n"
-                    b"X-Keyholder-Session: %s\r\n"
-                    b"X-Keyholder-PoP: %s\r\n"
-                    b"X-Keyholder-Timestamp: %s\r\n\r\n"
+                    b"X-Sealvra-Session: %s\r\n"
+                    b"X-Sealvra-PoP: %s\r\n"
+                    b"X-Sealvra-Timestamp: %s\r\n\r\n"
                     % (self.port, self.port, TOKEN.encode(), pop.encode(),
                        str(ts).encode()))
                 head = b""

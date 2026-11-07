@@ -19,12 +19,12 @@ CASES = [{'kind': 'cache', 'first_level': 1, 'spend': False, 'variation': 'same'
 CASE_COUNT = len(CASES)
 
 import urllib.parse
-from keyholder.packs import PackRefusedError, parse_pack
-from keyholder.policy import (
+from sealvra.packs import PackRefusedError, parse_pack
+from sealvra.policy import (
     DecisionCache, PolicyDecision, SpendCap, spend_alert_copy,
 )
-from keyholder.audit import entry_hash_of
-from keyholder.proxy import contains_secret, validate_loopback_host
+from sealvra.audit import entry_hash_of
+from sealvra.proxy import contains_secret, validate_loopback_host
 
 
 def run_case(self, spec):

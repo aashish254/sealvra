@@ -4,8 +4,8 @@ Backend modules (W01 daemon/broker, W02 vault, W03 sessions, W09
 audit) landed mid-task as class-based, in-process modules with no CLI
 client protocol (daemon socket answers status/ping only), so the
 boundary is stubbed INSIDE THIS TEST FILE ONLY: fake backends are
-injected by patching keyholder.cli's _loader functions. Production
-code (keyholder/cli.py) contains no stubs. When the manager defines
+injected by patching sealvra.cli's _loader functions. Production
+code (sealvra/cli.py) contains no stubs. When the manager defines
 the CLI client interface, these fakes should be replaced by the real
 one and the same assertions kept.
 
@@ -27,8 +27,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from keyholder import cli  # noqa: E402
-from keyholder.cli import ERROR_CATALOGUE, KeyholderError, main  # noqa: E402
+from sealvra import cli  # noqa: E402
+from sealvra.cli import ERROR_CATALOGUE, SealvraError, main  # noqa: E402
 
 FAKE_KEY = "TEST-ONLY-FAKEKEY-aaaa1111"
 FAKE_KEY_2 = "TEST-ONLY-FAKEKEY-bbbb2222"
@@ -61,6 +61,8 @@ class FakeVault:
             created_at="2026-10-28T00:00:00Z",
             needs_rotation=needs_rotation,
             fingerprint=hashlib.sha256(FAKE_KEY.encode()).hexdigest()[:12],
+            display_name=None,
+            compromised=False,
         )
 
     def list_keys(self):
@@ -69,10 +71,11 @@ class FakeVault:
     def get_key(self, key_id):
         return self.keys.get(key_id)
 
-    def add_key(self, provider, label, secret, ever_pasted):
+    def add_key(self, provider, label, secret, ever_pasted, display_name=None):
         self.counter += 1
         key_id = f"key-{'%016x' % self.counter}"
         record = self._record(key_id, provider, label, ever_pasted)
+        record.display_name = display_name
         self.keys[key_id] = record
         return record
 
@@ -82,6 +85,15 @@ class FakeVault:
     def rotate_key(self, key_id, new_secret):
         record = self.keys[key_id]
         record.needs_rotation = False
+        return record
+
+    def mark_key_compromised(self, key_id):
+        if key_id not in self.keys:
+            raise CodedError("KH-1002", f"key not found: {key_id}")
+        record = self.keys[key_id]
+        # Mark as compromised by setting needs_rotation=True and flagging it
+        record.needs_rotation = True
+        record.compromised = True
         return record
 
 
@@ -258,7 +270,7 @@ class TestHelpAndUsage(CliTestCase):
     def test_version(self):
         code, out, _ = self.run_cli(["--version"])
         self.assertEqual(code, 0)
-        self.assertIn("keyholder 0.1.0", out)
+        self.assertIn("sealvra 0.1.0", out)
 
     def test_subcommand_helps(self):
         for argv in (["daemon", "--help"], ["keys", "--help"], ["sessions", "--help"],
@@ -339,7 +351,7 @@ class TestErrorCatalogue(CliTestCase):
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.object(
                 cli, "_load_vault",
-                side_effect=KeyholderError("KH-1006", "vault unavailable")), \
+                side_effect=SealvraError("KH-1006", "vault unavailable")), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = main(["keys", "list"])
         self.assertEqual(code, 1)
@@ -347,7 +359,7 @@ class TestErrorCatalogue(CliTestCase):
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.object(
                 cli, "_load_audit",
-                side_effect=KeyholderError("KH-1005", "audit unavailable")), \
+                side_effect=SealvraError("KH-1005", "audit unavailable")), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = main(["audit", "verify"])
         self.assertEqual(code, 3)
@@ -371,7 +383,7 @@ class TestImportAndRotation(CliTestCase):
 
     def test_add_never_pasted_has_no_rotation_gate(self):
         vault = FakeVault()
-        code, out, _ = self._add(vault, ["no"])
+        code, out, _ = self._add(vault, ["", "no"])
         self.assertEqual(code, 0)
         self.assertNotIn("NOT YET ROTATED", out)
         record = vault.list_keys()[0]
@@ -379,7 +391,7 @@ class TestImportAndRotation(CliTestCase):
 
     def test_add_pasted_yes_forces_rotation_gate(self):
         vault = FakeVault()
-        code, out, _ = self._add(vault, ["yes"])
+        code, out, _ = self._add(vault, ["", "yes"])
         self.assertEqual(code, 0)
         self.assertIn("NOT YET ROTATED", out)
         self.assertIn("before its first session", out)
@@ -387,30 +399,60 @@ class TestImportAndRotation(CliTestCase):
 
     def test_add_dont_know_means_yes(self):
         vault = FakeVault()
-        code, out, _ = self._add(vault, ["don't know"])
+        code, out, _ = self._add(vault, ["", "don't know"])
         self.assertEqual(code, 0)
         self.assertIn("NOT YET ROTATED", out)
         self.assertTrue(vault.list_keys()[0].needs_rotation)
 
     def test_add_reprompts_on_invalid_answer(self):
         vault = FakeVault()
-        code, out, _ = self._add(vault, ["maybe", "no"])
+        code, out, _ = self._add(vault, ["", "maybe", "no"])
         self.assertEqual(code, 0)
         self.assertNotIn("NOT YET ROTATED", out)
 
     def test_add_asks_the_mandatory_question(self):
         vault = FakeVault()
-        with mock.patch("builtins.input", return_value="no") as patched_input, \
+        with mock.patch("builtins.input", side_effect=["", "no"]) as patched_input, \
                 mock.patch("getpass.getpass", return_value=FAKE_KEY), \
                 mock.patch.object(cli, "_load_vault", return_value=vault), \
                 contextlib.redirect_stdout(io.StringIO()):
             main(["keys", "add", "--provider", "gemini", "--label", "k"])
         asked = " ".join(call.args[0] for call in patched_input.call_args_list)
+        self.assertIn("What would you like to call this key?", asked)
         self.assertIn("Was this key ever pasted anywhere?", asked)
+
+    def test_import_warns_on_display_name_collision(self):
+        vault = FakeVault()
+        self.run_with(
+            ["keys", "add", "--provider", "github", "--label", "a",
+             "--display-name", "Work"],
+            vault=vault, inputs=["no"], secrets=[FAKE_KEY])
+        code, out, err = self.run_with(
+            ["keys", "add", "--provider", "github", "--label", "b",
+             "--display-name", "Work"],
+            vault=vault, inputs=["n", "no"], secrets=[FAKE_KEY])
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("already called", out)
+        # Declining the clashing name leaves the vault to mint its default.
+        self.assertIsNone(vault.list_keys()[1].display_name)
+
+    def test_collision_answer_yes_keeps_the_shared_name(self):
+        vault = FakeVault()
+        self.run_with(
+            ["keys", "add", "--provider", "github", "--label", "a",
+             "--display-name", "Work"],
+            vault=vault, inputs=["no"], secrets=[FAKE_KEY])
+        code, out, err = self.run_with(
+            ["keys", "add", "--provider", "github", "--label", "b",
+             "--display-name", "Work"],
+            vault=vault, inputs=["y", "no"], secrets=[FAKE_KEY])
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("already called", out)
+        self.assertEqual(vault.list_keys()[1].display_name, "Work")
 
     def test_list_and_show_carry_permanent_warning_until_rotation(self):
         vault = FakeVault()
-        self._add(vault, ["yes"])
+        self._add(vault, ["", "yes"])
         key_id = vault.list_keys()[0].key_id
         _, out, _ = self.run_with(["keys", "list"], vault=vault)
         self.assertIn("NOT YET ROTATED", out)
@@ -420,7 +462,7 @@ class TestImportAndRotation(CliTestCase):
     def test_rotation_gate_blocks_first_session(self):
         vault = FakeVault()
         sessions = FakeSessions()
-        self._add(vault, ["yes"])
+        self._add(vault, ["", "yes"])
         key_id = vault.list_keys()[0].key_id
         code, _, err = self.run_with(
             ["sessions", "create", key_id], vault=vault, sessions=sessions)
@@ -432,7 +474,7 @@ class TestImportAndRotation(CliTestCase):
     def test_rotate_clears_gate_and_session_then_starts(self):
         vault = FakeVault()
         sessions = FakeSessions()
-        self._add(vault, ["don't know"])
+        self._add(vault, ["", "don't know"])
         key_id = vault.list_keys()[0].key_id
         code, out, _ = self.run_with(
             ["keys", "rotate", key_id], vault=vault, secrets=[FAKE_KEY_2])
@@ -445,7 +487,7 @@ class TestImportAndRotation(CliTestCase):
 
     def test_secret_never_appears_in_list_or_show_output(self):
         vault = FakeVault()
-        self._add(vault, ["no"])
+        self._add(vault, ["", "no"])
         key_id = vault.list_keys()[0].key_id
         _, list_out, _ = self.run_with(["keys", "list"], vault=vault)
         _, show_out, _ = self.run_with(["keys", "show", key_id], vault=vault)
@@ -457,7 +499,7 @@ class TestImportAndRotation(CliTestCase):
 
     def test_delete_requires_typed_confirmation(self):
         vault = FakeVault()
-        self._add(vault, ["no"])
+        self._add(vault, ["", "no"])
         key_id = vault.list_keys()[0].key_id
         code, out, _ = self.run_with(
             ["keys", "delete", key_id], vault=vault, inputs=["wrong"])
@@ -471,7 +513,86 @@ class TestImportAndRotation(CliTestCase):
         self.assertIsNone(vault.get_key(key_id))
 
 
-# ------------------------------------------------------------- sessions
+# ------------------------------------------------------------- Mark Compromised Tests
+
+
+class TestMarkCompromised(CliTestCase):
+    def _key(self, vault, pasted="no"):
+        with mock.patch("builtins.input", return_value=pasted), \
+                mock.patch("getpass.getpass", return_value=FAKE_KEY), \
+                mock.patch.object(cli, "_load_vault", return_value=vault), \
+                contextlib.redirect_stdout(io.StringIO()):
+            main(["keys", "add", "--provider", "github", "--label", "k"])
+        return vault.list_keys()[0].key_id
+
+    def test_mark_compromised_kills_sessions_and_blocks_new_ones(self):
+        vault = FakeVault()
+        sessions = FakeSessions()
+        key_id = self._key(vault)
+        self.run_with(
+            ["sessions", "create", key_id], vault=vault, sessions=sessions)
+        self.assertEqual(len(sessions.created), 1)
+        session_id = sessions.created[0].session_id
+        created_before = list(sessions.created)
+
+        code, out, err = self.run_with(
+            ["keys", "mark-compromised", key_id], vault=vault, sessions=sessions)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("COMPROMISED", out)
+        self.assertIn("sessions killed: 1", out)
+        self.assertIn(session_id, sessions.killed)
+
+        # A new session for a compromised key is refused before it is minted.
+        code, _, err = self.run_with(
+            ["sessions", "create", key_id], vault=vault, sessions=sessions)
+        self.assertEqual(code, 2)
+        self.assertIn("KH-1003", err)
+        self.assertEqual(sessions.created, created_before)
+
+    def test_mark_compromised_still_blocks_the_key_when_kill_path_is_unavailable(self):
+        """No daemon means no list_sessions(); the block must still land.
+
+        Otherwise reporting a leak looks like a command that failed and the
+        compromised key stays usable — the fail-open case this ordering fixes.
+        """
+        vault = FakeVault()
+        key_id = self._key(vault)
+        broken = mock.Mock()
+        broken.list_sessions.side_effect = AttributeError("list_sessions")
+        code, out, err = self.run_with(
+            ["keys", "mark-compromised", key_id], vault=vault, sessions=broken)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("could not enumerate sessions", out)
+        self.assertIn("COMPROMISED", out)
+        self.assertTrue(vault.get_key(key_id).compromised)
+        code, _, err = self.run_with(
+            ["sessions", "create", key_id], vault=vault, sessions=broken)
+        self.assertEqual(code, 2)
+        self.assertIn("COMPROMISED", err)
+
+    def test_notify_passes_user_text_as_data_never_as_script_source(self):
+        """A display name is attacker-influenceable text reaching osascript.
+
+        It must arrive as an argv element, not inside the -e source, or one
+        quote character turns `keys mark-compromised` into code execution.
+        """
+        evil = 'x" with title "y"; do shell script "touch /tmp/SEALVRA_INJECTED"'
+        with mock.patch.object(sys, "platform", "darwin"), \
+                mock.patch("subprocess.run") as run:
+            cli._notify(evil)
+        self.assertTrue(run.called)
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[0], "osascript")
+        source = argv[argv.index("-e") + 1]
+        self.assertNotIn(evil, source)
+        self.assertNotIn("do shell script", source)
+        self.assertIn(evil, argv[argv.index("-e") + 2:])
+
+    def test_notify_is_silent_off_macos(self):
+        with mock.patch.object(sys, "platform", "linux"), \
+                mock.patch("subprocess.run") as run:
+            cli._notify("anything")
+        self.assertFalse(run.called)
 
 
 class TestSessions(CliTestCase):
@@ -751,7 +872,7 @@ class TestErrorCatalogueV02(CliTestCase):
                         "KH-6003", "KH-6004"):
             self.assertEqual(cli.canonical_code(retired), "KH-1004", retired)
             self.assertEqual(ERROR_CATALOGUE["KH-1004"][0], 2)
-        with self.assertRaises(KeyholderError) as caught:
+        with self.assertRaises(SealvraError) as caught:
             cli.canonical_code("KH-9999")
         self.assertEqual(caught.exception.code, "KH-2001")
 
@@ -814,7 +935,7 @@ class TestErrorCatalogueV02(CliTestCase):
 
 class TestDefaultsTableV02(CliTestCase):
     def test_cli_and_gui_defaults_tables_agree(self):
-        from keyholder import gui
+        from sealvra import gui
 
         self.assertEqual(cli.DEFAULTS, gui.DEFAULTS)
         self.assertEqual(cli.QUIT_DEFAULT, gui.QUIT_DEFAULT)
@@ -849,7 +970,7 @@ class TestDefaultsTableV02(CliTestCase):
         for bad in (30, 120, 300):
             # 120 without the accessibility opt-in, and every other
             # value from the deleted ranges, are usage errors.
-            with self.assertRaises(KeyholderError) as caught:
+            with self.assertRaises(SealvraError) as caught:
                 cli.resolve_approval_timeout_value(bad)
             self.assertEqual(caught.exception.code, "KH-2001")
 
@@ -858,7 +979,7 @@ class TestDefaultsTableV02(CliTestCase):
         self.assertEqual(cli.resolve_idle_minutes(2), 2)
         self.assertEqual(cli.resolve_idle_minutes(15), 15)
         for bad in (0, 1, 16, 60):
-            with self.assertRaises(KeyholderError) as caught:
+            with self.assertRaises(SealvraError) as caught:
                 cli.resolve_idle_minutes(bad)
             self.assertEqual(caught.exception.code, "KH-2001")
 
@@ -867,7 +988,7 @@ class TestDefaultsTableV02(CliTestCase):
         # surface claims on or off (W17 owns the payload).
         self.assertIsNone(cli.DEFAULTS["update_check_default"])
         self.assertNotIn("update check", cli.FIRST_RUN_TEXT)
-        from keyholder import gui
+        from sealvra import gui
 
         self.assertNotIn("update check", gui.trust_screen_text(0))
 
@@ -882,7 +1003,7 @@ class TestQuitSemanticsV02(CliTestCase):
         self.assertIn("kill-all", text)
 
     def test_gui_quit_text_matches_keep_semantics(self):
-        from keyholder import gui
+        from sealvra import gui
 
         vm = gui.ViewModel(gui.EmptyDataSource())
         text = vm.quit_text()
@@ -931,13 +1052,13 @@ class TestWiredTokenLifecycleV02(CliTestCase):
         self.assertIn("delete the .bak", cli.WIRED_TOKEN_LIFECYCLE["on_expiry"])
 
     def test_share_warning_present_on_both_surfaces(self):
-        from keyholder import gui
+        from sealvra import gui
 
         for warning in (cli.WIRED_TOKEN_SHARE_WARNING, gui.WIRED_TOKEN_SHARE_WARNING):
             self.assertIn("Do not share, sync, or commit", warning)
 
     def test_copy_setup_never_carries_the_token(self):
-        with self.assertRaises(KeyholderError) as caught:
+        with self.assertRaises(SealvraError) as caught:
             cli.copy_agent_setup("token = " + self.TOKEN, self.TOKEN)
         self.assertEqual(caught.exception.code, "KH-2001")
         clean = cli.copy_agent_setup("proxy = https://127.0.0.1:8765", self.TOKEN)
@@ -949,20 +1070,20 @@ class TestSingleNoOsAuthRuleV02(CliTestCase):
     FORBIDDEN_FALLBACK_PHRASES = (
         "Allow with password",
         "verified against the vault",
-        "Keyholder passphrase",
+        "Sealvra passphrase",
     )
 
     def test_no_competing_fallback_text_in_cli_or_gui_source(self):
         import pathlib
 
         root = pathlib.Path(__file__).resolve().parent.parent
-        for name in ("keyholder/cli.py", "keyholder/gui.py"):
+        for name in ("sealvra/cli.py", "sealvra/gui.py"):
             text = (root / name).read_text()
             for phrase in self.FORBIDDEN_FALLBACK_PHRASES:
                 self.assertNotIn(phrase, text, f"{name} still carries: {phrase}")
 
     def test_single_rule_text_shared_by_both_surfaces(self):
-        from keyholder import gui
+        from sealvra import gui
 
         self.assertEqual(cli.NO_OS_AUTH_RULE, gui.NO_OS_AUTH_RULE)
         self.assertTrue(cli.NO_OS_AUTH_RULE.startswith("refuse:"))

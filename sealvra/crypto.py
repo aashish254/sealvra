@@ -1,4 +1,4 @@
-"""Keyholder v0.1 — low-level crypto primitives (W02).
+"""Sealvra v0.1 — low-level crypto primitives (W02).
 
 Tier statement (CONTRACT §10): these primitives are pure computation.
 They provide NO Tier B (same-user-process) separation on their own.

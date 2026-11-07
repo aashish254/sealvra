@@ -3,7 +3,7 @@
 Proves the proxy's PRODUCTION path uses the broker-owned real
 approver (approval.RealApprover via approval.proxy_approver), and
 that test approvers only enter through the explicit test-only
-parameter under the test-harness marker KEYHOLDER_TEST_APPROVER=1
+parameter under the test-harness marker SEALVRA_TEST_APPROVER=1
 (set only by tests in this file, restored afterwards).
 
 Loopback mocks only, fake TEST-ONLY keys only, no contact with any
@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from keyholder.approval import (  # noqa: E402
+from sealvra.approval import (  # noqa: E402
     ApprovalBroker,
     ApprovalDecision,
     ApprovalError,
@@ -36,14 +36,14 @@ from keyholder.approval import (  # noqa: E402
     mark_test_approver,
     proxy_approver,
 )
-from keyholder.proxy import ProxyConfig, ProxyEngine, canonicalise_target  # noqa: E402
-from keyholder.tokens import sign_request  # noqa: E402
-from keyholder.types import PolicyDecision, Session  # noqa: E402
+from sealvra.proxy import ProxyConfig, ProxyEngine, canonicalise_target  # noqa: E402
+from sealvra.tokens import sign_request  # noqa: E402
+from sealvra.types import PolicyDecision, Session  # noqa: E402
 
 FAKE_KEY = "TEST-ONLY-GITHUB-FAKE-KEY-0001"
 POP_KEY = b"TEST-ONLY-POP-KEY-0000000000000001"
 TOKEN = "kh_sess_TEST-ONLY-TOKEN-0001"
-MARKER = "KEYHOLDER_TEST_APPROVER"
+MARKER = "SEALVRA_TEST_APPROVER"
 
 
 class FakeClock:
@@ -99,9 +99,9 @@ def _signed(session, base, method, target, body=b"", ts_offset=0):
     pop, ts = sign_request(POP_KEY, method, canon.host,
                            canon.canonical_path, body,
                            timestamp=int(time.time()) + ts_offset)
-    headers = [("X-Keyholder-Session", TOKEN),
-               ("X-Keyholder-Pop", pop),
-               ("X-Keyholder-Timestamp", str(ts)),
+    headers = [("X-Sealvra-Session", TOKEN),
+               ("X-Sealvra-Pop", pop),
+               ("X-Sealvra-Timestamp", str(ts)),
                ("Host", canon.host)]
     return headers
 
@@ -339,7 +339,7 @@ class TestReplayDenied(WiringTestBase):
 
     def test_replayed_signed_decision_rejected_by_broker(self):
         broker = ApprovalBroker(min_card_dwell_s=0)
-        from keyholder.approval import build_card, compute_request_hash
+        from sealvra.approval import build_card, compute_request_hash
         card = build_card(
             approval_id="appr-test", key_id="key-0123456789abcdef",
             provider="github", key_label="TEST-ONLY GitHub",
@@ -381,7 +381,7 @@ class TestKillNeedsNoAuth(WiringTestBase):
     def test_kill_pending_without_any_gesture(self):
         broker = ApprovalBroker(min_card_dwell_s=0)
         approver = RealApprover(broker, gesture=lambda prompt: True)
-        from keyholder.approval import build_card, compute_request_hash
+        from sealvra.approval import build_card, compute_request_hash
         card = build_card(
             approval_id="appr-test", key_id="key-0123456789abcdef",
             provider="github", key_label="TEST-ONLY GitHub",
@@ -459,7 +459,7 @@ class TestCeremonyRules(WiringTestBase):
                          DenyReason.REMOTE_DESTRUCTIVE_REFUSED.value)
 
     def test_breakglass_alone_never_approves_destructive(self):
-        from keyholder.approval import BreakGlass
+        from sealvra.approval import BreakGlass
         glass = BreakGlass(activation_id="bg-test",
                            active_until_monotonic=1e9, presence_at_wall=0.0)
         self.assertFalse(glass.covers_destructive())
@@ -489,7 +489,7 @@ class TestCeremonyRules(WiringTestBase):
         self.assertTrue(decision_ok.approved)
 
     def test_plain_request_without_card_data_denied(self):
-        from keyholder.types import ApprovalRequest
+        from sealvra.types import ApprovalRequest
         approver, _ = _real_approver(gesture=lambda p: True)
         decision = approver.approve(ApprovalRequest(
             approval_id="appr-plain", session_pseudonym="sess-x",

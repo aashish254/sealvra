@@ -1,4 +1,4 @@
-# Keyholder v0.2 — Test Scale Report (W10)
+# Sealvra v0.2 — Test Scale Report (W10)
 
 Engine: `tests/test_scale_engine.py` (hand-written, seed 20261028).
 Generated files are self-contained: each embeds its case table plus its runner;
@@ -34,7 +34,7 @@ checked by `test_committed_files_match_engine` and `test_generation_is_determini
 ### Remaining full-suite failures (not W10) — MANAGER CORRECTION (2026-10-28)
 
 The two items below are SUPERSEDED by manager integration fixes and no longer
-fail: the dual-consume product gap is closed in `keyholder/approval.py`
+fail: the dual-consume product gap is closed in `sealvra/approval.py`
 (unified single-use; `test_adversarial` passes in full), and the `yaml`
 checker flag is closed by the macOS checker's shipped-code scope (tests
 excluded). The manager's final full run is green: 11,771 tests, 0 failures,
@@ -47,7 +47,7 @@ below for the record.
   product gap in approval/spend-grant logic (sibling W02/W14 area); W10 touches no product modules.
 - `test_w17_macos` checker + readiness tests: the checker flags a `yaml` import in
   `tests/test_w20_packaging.py` and macOS API mentions in scripts/other test files;
-  no W10 file is cited. W10 files import stdlib + `keyholder` only.
+  no W10 file is cited. W10 files import stdlib + `sealvra` only.
 - Note: an earlier full run also showed `test_e2e` fixed-port (18765/18766) clashes and
   a `test_gates` registry-count failure; both cleared in the final run (sibling churn /
   ordering interference), and `test_e2e.MockProviderTests` passes standalone.

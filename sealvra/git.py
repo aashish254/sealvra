@@ -1,4 +1,4 @@
-"""Keyholder v0.2 — git interposition: credential helper + wrapper (W05).
+"""Sealvra v0.2 — git interposition: credential helper + wrapper (W05).
 
 Normative sources: CONTRACT.md §13.4 (git interposition boundary) and
 v3 plan §1J as corrected by final-check audit f09 (GitHub adapter).
@@ -10,7 +10,7 @@ What this slice IS
 1. A git credential helper speaking git's credential protocol
    (``get`` / ``store`` / ``erase`` on stdin/stdout, ``key=value``
    lines terminated by a blank line). On ``get`` it returns a
-   SESSION-SCOPED credential: username ``keyholder`` and password =
+   SESSION-SCOPED credential: username ``sealvra`` and password =
    the proxy session token (``kh_sess_...``), bound to exactly one
    key, one repo scope (host + owner/repo), and TTL-capped by the
    session's expiry. It NEVER returns, prints, or stores the real
@@ -31,7 +31,7 @@ What this slice IS
 What this slice is NOT (honest boundary, CONTRACT §13.4)
 --------------------------------------------------------
 * There is NO git smart-HTTP proxy in this slice. The session-token
-  credential the helper returns is meaningful only to a Keyholder
+  credential the helper returns is meaningful only to a Sealvra
   git proxy (not yet built) or to the loopback fake remote used in
   tests, which validates the token, scope, and expiry itself. Sent
   directly to github.com it would simply fail authentication —
@@ -43,7 +43,7 @@ What this slice is NOT (honest boundary, CONTRACT §13.4)
 * A git client run DIRECTLY by the agent with standing credentials
   outside the wrapper/helper bypasses the broker completely: it is
   NOT logged and NOT gated. That path is the residual risk. Mitigations
-  that exist elsewhere (not invented here): ``keyholder doctor``
+  that exist elsewhere (not invented here): ``sealvra doctor``
   already inventories standing git credentials (``.git-credentials``
   and ``.config/gh/hosts.yml`` are in its credential-store list in
   ``cli.py``) — run it and remove/rotate anything it flags. The
@@ -119,7 +119,7 @@ __all__ = [
     "COVERAGE",
 ]
 
-HELPER_USERNAME = "keyholder"
+HELPER_USERNAME = "sealvra"
 
 # Error codes (CONTRACT §9, same event = same code on every surface).
 ERR_POLICY_DENIED = "KH-1003"
@@ -855,7 +855,7 @@ COVERAGE: dict[str, object] = {
         "not logged, not gated (doctor must flag standing credentials)",
         "direct git with a stolen/standing session token: not gated "
         "(Tier B; same-user process can reuse anything it can read)",
-        "git-protocol traffic to a real provider: no Keyholder git proxy "
+        "git-protocol traffic to a real provider: no Sealvra git proxy "
         "exists in this slice, so the helper credential authenticates only "
         "against a proxy/fake remote that validates session tokens",
         "per-path restriction inside a push: not enforceable from refspecs "
@@ -869,7 +869,7 @@ COVERAGE: dict[str, object] = {
 
 
 def coverage_report() -> str:
-    lines = ["Keyholder git interposition — coverage (v0.2 helper+wrapper slice):"]
+    lines = ["Sealvra git interposition — coverage (v0.2 helper+wrapper slice):"]
     for key, value in COVERAGE.items():
         if isinstance(value, list):
             lines.append(f"  NOT COVERED:")

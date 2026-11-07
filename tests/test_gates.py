@@ -1,4 +1,4 @@
-"""Release-gate behaviour tests for Keyholder v0.2 (W08).
+"""Release-gate behaviour tests for Sealvra v0.2 (W08).
 
 Covers, with synthetic cases plus the real tree where honest:
 - master test registry: discovered == registry, executed == registry
@@ -9,14 +9,15 @@ Covers, with synthetic cases plus the real tree where honest:
   unknown test IDs (f17 P-02/P-19/P-20);
 - skip / mute / deletion definitions (f17 P-07/P-19);
 - artifact binding to shipped commit + build hash, including the
-  honest UNBOUND case when no repo exists (f17 P-06);
+  honest UNBOUND case (no commit supplied at all, f17 P-06);
 - grep gates on synthetic losing/winning/superseded passages and
   on the real document set (v3 G0-18).
 
 These tests never claim a live release passes: the full-suite gate
-on this VM would fail on platform skips (correctly -- a skip counts
+on this Mac would fail on platform skips (correctly -- a skip counts
 as a failure unless validly excepted), and artifact binding is
-UNBOUND here because there is no repo. What is asserted here is
+UNPROVEN here because the tested commit is not on the remote (see
+the registry docstring). What is asserted here is
 that the gate machinery itself refuses exactly the cases it must
 refuse and passes exactly the cases it must pass (f17 P-21, the
 "test the gates" requirement, applied to the gate code in this
@@ -366,7 +367,7 @@ class TestArtifactBinding(unittest.TestCase):
         self.assertTrue(reg.verify_gate_artifact(None, "a" * 40, "b" * 64))
 
     def test_unknown_commit_is_unbound_not_passing(self):
-        # The repo-dependent case: no repo -> no commit -> refuse.
+        # The fail-closed case: no commit supplied -> refuse.
         errors = reg.verify_gate_artifact(_artifact(), None, "b" * 64)
         self.assertTrue(any("UNBOUND" in e for e in errors), errors)
 
@@ -375,7 +376,7 @@ class TestArtifactBinding(unittest.TestCase):
             discovered=list(reg.REGISTRY_IDS),
             outcomes=_all_passed_outcomes(),
             artifact=_artifact(),
-            expected_commit=None,  # no repo in this tree
+            expected_commit=None,  # no commit supplied, on purpose
             expected_build_hash="b" * 64,
             today=TODAY,
         )
@@ -439,7 +440,7 @@ class TestGrepGatesSynthetic(unittest.TestCase):
 
     def test_will_not_do_list_passes(self):
         self.assert_gate_passes(
-            "## What Keyholder will not do, even if asked\n"
+            "## What Sealvra will not do, even if asked\n"
             "\n"
             "- Show a real key, copy a key to the clipboard, or print a session\n"
             "  token after creation. There is no command for any of these.\n")

@@ -1,6 +1,7 @@
-# Supply chain — Keyholder v0.2
+# Supply chain — Sealvra v0.2
 
-Working title Keyholder. This document covers the local v0.2 build only.
+Product name Sealvra (owner-decided). This document covers the local v0.2
+build only.
 It makes no claim about any future release, and nothing in it is a
 release, a signature, or an authorisation. Where a control is planned
 but not built, this document says so plainly. (Plan source: v3 wins over
@@ -45,7 +46,7 @@ gate audit. Changes in this round (W19 files only):
   timestamp == epoch) plus a cold-cache check. **Open defect, not
   hidden**: the cold-cache check FAILs because
   `scripts/make_zipapp.py` (W20's file, not edited here) bundles
-  `keyholder/__pycache__/*.pyc` into the zip, so the artifact
+  `sealvra/__pycache__/*.pyc` into the zip, so the artifact
   depends on whether tests ran before the build (23 extra entries
   on a test-run tree vs a fresh copy). Fix owned by W20: exclude
   `__pycache__`/`*.pyc` in `collect_files`. Until then the honest
@@ -56,7 +57,9 @@ gate audit. Changes in this round (W19 files only):
   windows / macos jobs (full unittest discovery, SBOM gates,
   zipapp build, artifact + hash upload), a `rebuild` job whose hash
   must equal the build hash, and a fail-closed `sign` job (see §5).
-  It is still PREPARED, NEVER RUN: no repository exists, no run is
+  It is still PREPARED, NEVER RUN: the repository is public but only
+  `README.md` is on its pushed branch, this workflow is not, and
+  `gh run list` returns zero runs — so no run is
   claimed, and the signing job deliberately fails until a protected
   environment with two approvers exists in repository settings.
 - **Still NOT closed in v0.2** (see §9 for the full list): no
@@ -353,7 +356,7 @@ otherwise.
 ## 9. Known gaps (v0.2, to be closed before any public release)
 
 - **Cold-cache defect (OPEN, W20-owned):**
-  `scripts/make_zipapp.py` bundles `keyholder/__pycache__/*.pyc`
+  `scripts/make_zipapp.py` bundles `sealvra/__pycache__/*.pyc`
   into the zipapp, so a build from a test-run tree differs from a
   build from a fresh copy (23 extra entries measured in v0.2).
   `scripts/repro_check.py` reports this as FAIL
@@ -381,11 +384,47 @@ otherwise.
   the inventory; it is not a sandbox claim.
 - CI gates now exist in this module's scope (dependency gate, SBOM
   diff, cold-cache pip installs, rebuild hash comparison,
-  fail-closed signing job), but the workflow has NEVER RUN: no
-  repository exists, action SHAs are not pinned (none invented),
-  and the verification-command check (every published command must
-  pin the exact workflow + tag identity, §6) still has no CI
-  implementation because no release page publishes commands yet.
+  fail-closed signing job), but the workflow has NEVER RUN: it is not
+  on the remote's pushed branch (`gh run list` returns zero runs), and
+  the verification-command check (every
+  published command must pin the exact workflow + tag identity, §6)
+  still has no CI implementation because no release page publishes
+  commands yet.
+- Action pinning (F16-C7) is done locally: every `uses:` in
+  `.github/workflows/ci.yml` names a full commit SHA, not a movable
+  tag. The SHAs below were read on 2026-10-28 from the public GitHub
+  References API **on the Mac** (not from a CI run — the workflow has
+  never run), each confirmed `type=commit` and confirmed to also carry
+  the patch tag named:
+
+  | Action | Pinned commit SHA | Tag it names | Patch release |
+  |---|---|---|---|
+  | `actions/checkout` | `11d5960a326750d5838078e36cf38b85af677262` | `v4` | v4.4.0 |
+  | `actions/setup-python` | `a26af69be951a213d495a4c3e4e4022e16d87065` | `v5` | v5.6.0 |
+  | `actions/upload-artifact` | `ea165f8d65b6e75b540449e92b4886f43607fa02` | `v4` | v4.6.2 |
+  | `actions/download-artifact` | `d3f86a106a0bac45b974a628896c90dbdf5c8093` | `v4` | v4.3.0 |
+
+  Re-check command (must be run again by a human before the first real
+  run, and the YAML re-validated; local validation used
+  `/usr/bin/ruby -ryaml` because PyYAML is not installed in the build
+  venv, so the two `test_ci_yaml_*` tests skip as NOT-RUN on this
+  machine):
+
+  ```sh
+  gh api repos/actions/checkout/git/ref/tags/v4 --jq '.object.type + " " + .object.sha'
+  ```
+
+  Drift, stated rather than hidden: these are the heads of the **v4/v5
+  lines**, not the current upstream majors, which on the same date were
+  `checkout v7` = `3d3c42e5aac5ba805825da76410c181273ba90b1`,
+  `setup-python v7` = `6d4fd22b20465ccc0f7354476588e8df7c9ca0e0`,
+  `upload-artifact v7` = `cf430e030ddbb5b0abf93d22962f4752f3646cd9`,
+  `download-artifact v8` = `9000827ccba6bdab643e8b6fd33ac0654aef8333`.
+  A major-line bump changes artifact retention and runner behaviour, so
+  it is an owner decision, not a mechanical edit. Pinning is a
+  supply-chain hygiene step only; it does not make this workflow
+  release-ready, because the signing job is still fail-closed and no
+  run exists.
 - No provenance, attestation, or authorisation record exists in
   v0.2 (§5 is preparation only). No independently-sourced-toolchain
   rebuild exists; the CI `rebuild` job is a same-pipeline
@@ -399,9 +438,15 @@ otherwise.
   no installer is built in v0.2 — the zipapp is the only artifact,
   and `SOURCE_DATE_EPOCH` is carried through it (see §4), not yet
   through any DMG/NSIS packaging.
-- The SBOM is a snapshot of a tree that is still changing;
-  regenerate it after all workers land code and re-run
-  `scripts/sbom.py --diff sbom.json` before any release claim.
+- The SBOM is a snapshot of a tree that is still changing; regenerate it
+  after all workers land code and re-run `scripts/sbom.py --diff sbom.json
+  --output sbom.fresh.json` (the form CI uses) before any release claim.
+  Running it without `--output` is a trap, not a check: the default
+  output is `<root>/sbom.json`, so the script rewrites the baseline it is
+  then asked to compare against and can only ever print PASS. CI
+  (`ci.yml`, the "Release gates" steps) and
+  `tests/test_w20_packaging.py::test_sbom_diff_vs_committed_passes` both
+  pass `--output` to a separate path and are therefore not affected.
 - No keys, real or otherwise, were used or generated anywhere in
   this module. Test fixtures elsewhere in the tree use `TEST-ONLY-`
   markers only; the secret scanner in `scripts/repro_check.py`

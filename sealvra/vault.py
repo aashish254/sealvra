@@ -1,4 +1,4 @@
-"""Keyholder v0.1 — per-compartment vault (W02).
+"""Sealvra v0.1 — per-compartment vault (W02).
 
 Implements CONTRACT §5 and v3 N-D1–N-D8, N-S2, N-S3:
 
@@ -117,8 +117,10 @@ import hmac
 import json
 import os
 import re
+import secrets
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from .crypto import (
@@ -128,10 +130,12 @@ from .crypto import (
     INFO_HEADER,
     INFO_RECOVERY_BODY,
     INFO_RECOVERY_HEADER,
+    CryptoTamperError,
     aes_gcm_decrypt,
     aes_gcm_encrypt,
     body_aad,
     derive_wrapping_key,
+    fingerprint,
     header_aad,
     hkdf_derive,
     new_salt,
@@ -507,6 +511,50 @@ class Vault:
     def _header_fields(self, header: dict) -> list[str]:
         return sorted(header.keys())
 
+    @staticmethod
+    def _checked_extra_header(extra_header: dict | None, *, backup_marker: bool) -> dict:
+        """Authenticated per-key metadata merged into the AEAD header.
+
+        The header is encrypted and its tag is fed to the body AAD (see
+        crypto.HEADER_AEAD_SPEC: ``header_fields`` is the sorted key list
+        of the header plaintext, so every field added here is
+        authenticated by both tags automatically). That is why the
+        rotation state lives here and not in a sidecar: the session
+        layer makes a security decision with it, and an unverified
+        plaintext field may never drive one (f07 H2).
+
+        Identity fields stay reserved, and backup containers keep the
+        byte format they were signed with, so this extension never
+        touches KHBACKUP1/KHBACKUP2.
+        """
+        if not extra_header:
+            return {}
+        if backup_marker:
+            raise VaultError(
+                "extra header metadata is refused for backup containers; "
+                "the backup format is unchanged from v0.1")
+        reserved = {
+            "key_id", "provider", "compartment_version", "auth_scheme", "container",
+        }
+        clash = reserved & set(extra_header)
+        if clash:
+            raise VaultError(
+                f"refusing to override reserved header fields: {sorted(clash)}")
+        checked: dict = {}
+        for name, value in extra_header.items():
+            if not re.match(r"^[a-z][a-z0-9_]{0,31}$", name):
+                raise VaultError(f"invalid metadata field name: {name!r}")
+            if isinstance(value, bool) or isinstance(value, int):
+                checked[name] = value
+                continue
+            if isinstance(value, str) and len(value) <= 512:
+                checked[name] = value
+                continue
+            raise VaultError(
+                f"metadata field {name!r} must be a bool, a small int, "
+                "or a string of at most 512 characters")
+        return checked
+
     def _build_envelope(
         self,
         *,
@@ -519,6 +567,7 @@ class Vault:
         wrapping_key: bytes,
         secret: bytes,
         backup_marker: bool,
+        extra_header: dict | None = None,
     ) -> dict:
         """Build an AEAD envelope (live compartment or backup container).
 
@@ -550,6 +599,8 @@ class Vault:
             }
             header_info, body_info = INFO_HEADER, INFO_BODY
             marker = []
+        header.update(
+            self._checked_extra_header(extra_header, backup_marker=backup_marker))
         fields = self._header_fields(header)
         # AAD is built ONLY by crypto.header_aad/body_aad (v0.2 spec
         # single source of truth; see crypto.HEADER_AEAD_SPEC).
@@ -747,6 +798,7 @@ class Vault:
         *,
         password: bytes | None = None,
         wrapping_key: bytes | None = None,
+        extra_header: dict | None = None,
     ) -> dict:
         """Create a new compartment (version 1). Refuses if one exists."""
         self._check_key_id(key_id)
@@ -767,6 +819,7 @@ class Vault:
             wrapping_key=wk,
             secret=secret,
             backup_marker=False,
+            extra_header=extra_header,
         )
         atomic_write_bytes(path, _canonical(envelope))
         return {"key_id": key_id, "provider": provider, "compartment_version": 1,
@@ -809,6 +862,58 @@ class Vault:
             password=password, wrapping_key=wrapping_key,
         )
         return secret
+
+    def verified_header(
+        self,
+        key_id: str,
+        *,
+        password: bytes | None = None,
+        wrapping_key: bytes | None = None,
+    ) -> dict:
+        """Return the AEAD-authenticated header, without decrypting the
+        secret.
+
+        This is the only trustworthy source of per-key metadata, because
+        the header is decrypted and authenticated before anything reads
+        it (f07 H2 verification order). ``get_metadata`` and
+        ``list_compartments`` return plaintext envelope fields marked
+        ``header_verified: False`` and must never gate a session; the
+        rotation gate uses this method instead. The body is never
+        touched, so a metadata read never hands out key material.
+        """
+        path = self._compartment_path(key_id)
+        if not path.exists():
+            raise CompartmentNotFound(f"no compartment: {key_id}")
+        try:
+            envelope = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, OSError) as exc:
+            raise VaultError(f"unreadable compartment envelope: {exc}") from exc
+        if envelope.get("format") != COMPARTMENT_FORMAT:
+            raise UnsupportedFormatError(
+                f"refusing envelope with format {envelope.get('format')!r}: "
+                f"expected {COMPARTMENT_FORMAT!r}. {MIGRATION_DECISION}")
+        try:
+            salt = _b64d(envelope["salt_b64"])
+            auth_scheme = envelope["auth_scheme"]
+        except (KeyError, ValueError, TypeError) as exc:
+            raise VaultError(f"malformed envelope: {exc}") from exc
+        if auth_scheme == "password":
+            if password is None:
+                raise AuthRequired(
+                    f"compartment {key_id} needs its password to read metadata")
+            wk = derive_wrapping_key(password, salt)
+        elif auth_scheme == "platform-keychain":
+            if wrapping_key is None or len(wrapping_key) != 32:
+                raise AuthRequired(
+                    f"compartment {key_id} needs its platform wrapping key "
+                    "(32 bytes) to read metadata")
+            wk = bytes(wrapping_key)
+        else:
+            raise VaultError(f"unknown auth_scheme: {auth_scheme!r}")
+        header = self._verify_header(envelope, wk)
+        if header.get("key_id") != key_id:
+            raise VaultError("verified header key_id does not match compartment")
+        return header
 
     # -- password discipline: single-use tickets (v3 N-D3, f07 H4) ------
 
@@ -1024,6 +1129,7 @@ class Vault:
         password: bytes | None = None,
         wrapping_key: bytes | None = None,
         new_wrapping_key: bytes | None = None,
+        extra_header: dict | None = None,
     ) -> dict:
         """Replace the secret, snapshotting the old generation first.
 
@@ -1065,6 +1171,7 @@ class Vault:
             wrapping_key=wk,
             secret=new_secret,
             backup_marker=False,
+            extra_header=extra_header,
         )
         atomic_write_bytes(self._compartment_path(key_id), _canonical(envelope))
         return {"key_id": key_id, "provider": meta["provider"],
@@ -1856,3 +1963,353 @@ class Vault:
             )
             restored.append(key_id)
         return {"restored": restored, "skipped": skipped, **kill_info}
+
+
+# ======================================================================
+# CLI- and daemon-facing key store (v0.2 composition root)
+# ======================================================================
+# ``sealvra/cli.py`` has always called module-level ``list_keys``,
+# ``get_key``, ``add_key``, ``rotate_key`` and ``delete_key``. None of
+# them existed, so every ``keys`` command and every ``sessions create``
+# died as a generic KH-1006 while the CLI tests passed against a fake
+# that invented the interface. These functions are the real one.
+#
+# Where the metadata lives, and why:
+#   * label, created_at, fingerprint, ever_pasted and rotation_recorded
+#     all go inside the compartment's AEAD *header*, never in a
+#     sidecar. The header is encrypted and authenticated, and
+#     crypto.HEADER_AEAD_SPEC derives the AAD from the sorted header
+#     field names, so a field added here is authenticated by the header
+#     tag and by the body tag. That matters because the rotation gate
+#     (CONTRACT §9, G0-21) is a security decision: it must never be
+#     taken from ``get_metadata``/``list_compartments``, which return
+#     unverified plaintext and say so (f07 H2).
+#   * Consequence, stated plainly rather than hidden: reading key
+#     metadata needs the compartment's wrapping key, so ``keys list``
+#     and ``keys show`` require an unlocked store. A locked store
+#     raises AuthRequired, which the CLI surfaces as KH-1001.
+#
+# The wrapping-key source is the one genuinely open question in this
+# layer, and it is NOT decided here:
+#   * OD-12 (does password fallback default on or off) is an open owner
+#     decision, and no Argon2 password mode is wired to the CLI.
+#   * The macOS keychain path is design-only and has never run on a Mac
+#     in this tree, so nothing here claims os-enforced-per-key storage.
+# Therefore only an explicitly test-marked key source is accepted;
+# anything else raises AuthRequired naming the decision. A production
+# source has to be a decision, not a guess.
+
+VAULT_DIR_ENV = "SEALVRA_VAULT_DIR"
+TEST_MODE_ENV = "SEALVRA_TEST_MODE"
+TEST_WRAPPING_KEY_FILE_ENV = "SEALVRA_TEST_WRAPPING_KEY_FILE"
+
+# The test-only wrapping key is used for every compartment, so
+# per-compartment key isolation is NOT exercised in that mode; each
+# compartment is still a separate envelope with its own salt, version
+# and nonces. Said here so nobody reads a green test as proof of
+# per-key OS isolation.
+_TEST_STORE_PLATFORM = "linux-file"
+
+
+class KeyNotFound(Exception):
+    """Raised by the key-store helpers for an absent key_id."""
+
+
+@dataclass
+class KeyView:
+    """One key as the CLI and daemon see it. Never carries the secret."""
+
+    key_id: str
+    provider: str
+    label: str
+    display_name: str | None  # User-chosen name; fallback to label if None
+    created_at: str
+    fingerprint: str
+    needs_rotation: bool
+    compartment_version: int
+    auth_scheme: str
+    storage_tier: str
+    previously_rotated: bool = False  # Track if this display_name was used before
+    compromised: bool = False  # Owner-reported leak: blocked until deleted
+    header_verified: bool = True
+
+
+def vault_dir() -> Path:
+    """The vault root: ``$SEALVRA_VAULT_DIR`` else ``~/.sealvra/vault``."""
+    override = os.environ.get(VAULT_DIR_ENV)
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".sealvra" / "vault"
+
+
+def test_mode_enabled() -> bool:
+    return os.environ.get(TEST_MODE_ENV) == "1"
+
+
+def wrapping_key_for(key_id: str) -> bytes:
+    """Resolve the 32-byte wrapping key that opens ``key_id``.
+
+    Only the test-marked source is implemented. Without
+    ``SEALVRA_TEST_MODE=1`` (plus a key file) this raises
+    AuthRequired instead of silently inventing a password prompt, a
+    keychain call, or a file-stored key.
+    """
+    if not test_mode_enabled():
+        raise AuthRequired(
+            "no wrapping-key source is configured for this installation. "
+            "A production source needs an owner decision first: OD-12 "
+            "(whether the Argon2 password fallback defaults on or off) "
+            "and the macOS keychain / Windows DPAPI wrapping-key design, "
+            "neither of which has run on a real machine in this tree. "
+            f"Key {key_id} stays sealed until then.")
+    path_text = os.environ.get(TEST_WRAPPING_KEY_FILE_ENV)
+    if not path_text:
+        raise AuthRequired(
+            f"test mode is on but {TEST_WRAPPING_KEY_FILE_ENV} is unset; "
+            "refusing to fall back to any other key source")
+    path = Path(path_text).expanduser()
+    if _is_synced_path(path):
+        raise VaultError(
+            "refusing a wrapping key inside a synced folder: the key file "
+            "would leave this machine by way of the folder's own sync")
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise VaultError(f"cannot read the test wrapping key: {exc}") from exc
+    try:
+        key = bytes.fromhex(raw)
+    except ValueError as exc:
+        raise VaultError("test wrapping key file must hold 64 hex chars") from exc
+    if len(key) != 32:
+        raise VaultError("test wrapping key must be 32 bytes (64 hex chars)")
+    mode = path.stat().st_mode & 0o777
+    if mode & 0o077:
+        raise VaultError(
+            f"test wrapping key file is group/world accessible "
+            f"(mode {oct(mode)}); chmod 600 it")
+    return key
+
+
+def open_vault() -> Vault:
+    """The process's Vault at ``vault_dir()``."""
+    return Vault(vault_dir(), platform_store=_TEST_STORE_PLATFORM)
+
+
+def _key_id_exists(store: Vault, key_id: str) -> bool:
+    return store._compartment_path(key_id).exists()
+
+
+def _record_from_header(store: Vault, key_id: str, header: dict) -> KeyView:
+    ever_pasted = bool(header.get("ever_pasted", False))
+    recorded = bool(header.get("rotation_recorded", False))
+    previously_rotated = bool(header.get("previously_rotated", False))
+    compromised = bool(header.get("compromised", False))
+    display_name = header.get("display_name")  # May be None for legacy records
+    return KeyView(
+        key_id=key_id,
+        provider=header.get("provider", ""),
+        label=header.get("label", ""),
+        display_name=display_name,
+        created_at=header.get("created_at", ""),
+        fingerprint=header.get("fingerprint", ""),
+        # A compromised key stays gated even after rotation: the gate is what
+        # refuses it, and only deletion clears it.
+        needs_rotation=(ever_pasted and not recorded) or compromised,
+        compartment_version=int(header.get("compartment_version", 0)),
+        auth_scheme=header.get("auth_scheme", ""),
+        storage_tier=store.storage_tier,
+        previously_rotated=previously_rotated,
+        compromised=compromised,
+    )
+
+
+def add_key(provider: str, label: str, secret: str | bytes,
+            ever_pasted: bool, display_name: str | None = None) -> KeyView:
+    """Store a new key in its own compartment and return its record.
+
+    ``secret`` is encrypted and dropped; nothing here keeps it. The
+    ``ever_pasted`` answer is what drives the permanent NOT YET ROTATED
+    gate, so it is authenticated rather than merely recorded.
+    """
+    if provider not in PROVIDERS:
+        raise VaultError(f"unknown provider: {provider!r}")
+    label = (label or "").strip()
+    if not label:
+        raise VaultError("label must not be empty")
+    secret_bytes = secret.encode("utf-8") if isinstance(secret, str) else bytes(secret)
+    if not secret_bytes:
+        raise VaultError("refusing to store an empty key")
+    store = open_vault()
+    key_id = "key-" + secrets.token_hex(8)
+    wk = wrapping_key_for(key_id)
+    
+    # Generate default display_name if not provided
+    if display_name is None:
+        display_name = f"{provider.title()} • {key_id.split('-')[-1][:4].upper()}"
+    
+    store.store_secret(
+        key_id, provider, secret_bytes, wrapping_key=wk,
+        extra_header={
+            "label": label,
+            "display_name": display_name,
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "fingerprint": fingerprint(secret_bytes),
+            "ever_pasted": bool(ever_pasted),
+            "rotation_recorded": False,  # Not rotated on first import
+            "previously_rotated": False,  # New keys have no prior rotation history
+        })
+    del secret_bytes
+    return get_key(key_id)  # type: ignore[return-value]
+
+
+def get_key(key_id: str) -> KeyView | None:
+    """The authenticated record for one key, or None if it is absent."""
+    store = open_vault()
+    if not _key_id_exists(store, key_id):
+        return None
+    try:
+        header = store.verified_header(key_id, wrapping_key=wrapping_key_for(key_id))
+    except CryptoTamperError as exc:
+        raise VaultError(
+            f"compartment {key_id} failed authentication: the envelope, "
+            "its metadata, or the wrapping key does not match. The key is "
+            "not usable and nothing about it is displayed.") from exc
+    return _record_from_header(store, key_id, header)
+
+
+def list_keys() -> list[KeyView]:
+    """Every live key's authenticated record, oldest path first.
+
+    A compartment that fails authentication is still listed, because
+    silently hiding it would make a tampered vault look empty. It is
+    listed fail-closed: ``needs_rotation`` is True, so no session can
+    ever start for it, and no field from it is trusted.
+    """
+    store = open_vault()
+    records: list[KeyView] = []
+    for path in sorted(store.vault_dir.glob("key-*.khcomp.json")):
+        key_id = path.name[: -len(".khcomp.json")]
+        # Resolved OUTSIDE the try: a locked store is never reported as
+        # an empty one, and AuthRequired must reach the CLI as KH-1001.
+        wk = wrapping_key_for(key_id)
+        try:
+            header = store.verified_header(key_id, wrapping_key=wk)
+        except (VaultError, CryptoTamperError):
+            records.append(KeyView(
+                key_id=key_id,
+                provider="",
+                label="<unreadable compartment — authentication failed>",
+                created_at="",
+                fingerprint="",
+                needs_rotation=True,
+                compartment_version=0,
+                auth_scheme="unverified",
+                storage_tier=store.storage_tier,
+                header_verified=False,
+            ))
+            continue
+        records.append(_record_from_header(store, key_id, header))
+    return records
+
+
+def rotate_key(key_id: str, new_secret: str | bytes) -> KeyView:
+    """Replace the stored key and clear the NOT YET ROTATED gate."""
+    store = open_vault()
+    if not _key_id_exists(store, key_id):
+        raise CompartmentNotFound(f"no compartment: {key_id}")
+    secret_bytes = (new_secret.encode("utf-8")
+                    if isinstance(new_secret, str) else bytes(new_secret))
+    if not secret_bytes:
+        raise VaultError("refusing to store an empty rotated key")
+    wk = wrapping_key_for(key_id)
+    current = store.verified_header(key_id, wrapping_key=wk)
+    store.rotate_secret(
+        key_id, secret_bytes, wrapping_key=wk,
+        extra_header={
+            "label": current.get("label", ""),
+            "display_name": current.get("display_name"),  # Preserve user's display name
+            "created_at": current.get("created_at", ""),
+            "fingerprint": fingerprint(secret_bytes),
+            "ever_pasted": bool(current.get("ever_pasted", False)),
+            "rotation_recorded": True,  # Rotation confirmed
+            "previously_rotated": True,  # Mark as previously rotated
+            # A compromised key is not revived by rotating it; the owner's
+            # path out is delete-and-re-import.
+            "compromised": bool(current.get("compromised", False)),
+        })
+    del secret_bytes
+    return get_key(key_id)  # type: ignore[return-value]
+
+
+def delete_key(key_id: str) -> dict:
+    """Delete the live compartment; the receipt states what remains."""
+    store = open_vault()
+    if not _key_id_exists(store, key_id):
+        raise CompartmentNotFound(f"no compartment: {key_id}")
+    return store.delete_compartment(key_id)
+
+
+def mark_key_compromised(key_id: str) -> KeyView:
+    """Flag a key compromised: sessions stop, and rotation cannot clear it.
+
+    The compartment is re-written under its own current secret, so the key
+    material is unchanged while the authenticated header gains the flag; the
+    prior generation is snapshotted exactly as a rotation would. Opening the
+    secret first is deliberate — a compartment the caller cannot authenticate
+    is not modifiable. `compromised` lives in the AEAD header rather than a
+    sidecar because the session layer makes a security decision with it.
+    """
+    store = open_vault()
+    if not _key_id_exists(store, key_id):
+        raise CompartmentNotFound(f"no compartment: {key_id}")
+    wk = wrapping_key_for(key_id)
+    current = store.verified_header(key_id, wrapping_key=wk)
+    secret_bytes = store.open_secret(key_id, wrapping_key=wk)
+    try:
+        store.rotate_secret(
+            key_id, secret_bytes, wrapping_key=wk,
+            extra_header={
+                "label": current.get("label", ""),
+                "display_name": current.get("display_name"),
+                "created_at": current.get("created_at", ""),
+                "fingerprint": current.get("fingerprint", ""),
+                "ever_pasted": True,
+                "rotation_recorded": False,
+                "previously_rotated": bool(current.get("previously_rotated", False)),
+                "compromised": True,
+            })
+    finally:
+        del secret_bytes
+    return get_key(key_id)  # type: ignore[return-value]
+
+
+def secret_for(key_id: str) -> str | None:
+    """The real key for one compartment, for the proxy's injection only.
+
+    Returns None when the key is absent or the store is locked, so the
+    proxy denies with its generic KH-1006 rather than leaking a
+    filesystem or crypto detail to the agent. Never call this from a
+    CLI print path: no surface may display a key.
+    """
+    try:
+        store = open_vault()
+        if not _key_id_exists(store, key_id):
+            return None
+        return store.open_secret(
+            key_id, wrapping_key=wrapping_key_for(key_id)).decode("utf-8")
+    except (VaultError, CryptoTamperError, OSError):
+        return None
+
+
+def needs_rotation(key_id: str) -> bool | None:
+    """Verified rotation state for the session gate.
+
+    None means the key cannot be read at all, which the daemon treats
+    as a refusal: an unknown rotation state never starts a session.
+    """
+    try:
+        record = get_key(key_id)
+    except (AuthRequired, VaultError):
+        return None
+    return None if record is None else record.needs_rotation
+

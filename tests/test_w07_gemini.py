@@ -1,6 +1,6 @@
 """W07 Gemini adapter tests (unittest). No real Gemini calls, no real
 keys: TEST-ONLY fixtures only. Run: python3 -m unittest discover -s tests -v
-from ~/workspace/keyholder-build/"""
+from ~/workspace/sealvra-build/"""
 
 import os
 import sys
@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from keyholder.gemini import (  # noqa: E402
+from sealvra.gemini import (  # noqa: E402
     CreationLedger, StreamingUsageTracker, account_stream, build_upstream_headers,
     classify_key, classify_request, estimate_cost_usd, extract_file_name,
     reject_query_key, spend_within_limiter, validate_response_function_calls,
@@ -42,7 +42,7 @@ class TestAuthKeyModel(unittest.TestCase):
     def test_key_authenticates_project_claim_deleted(self):
         # The deleted R06 claim must appear only as a DELETED claim,
         # never as an asserted fact, in the module docstring.
-        import keyholder.gemini as g
+        import sealvra.gemini as g
         self.assertIn("are DELETED", g.__doc__)
         self.assertNotIn("key authenticates the project, not a person\" claim",
                          g.__doc__.replace("and its \"key authenticates the "

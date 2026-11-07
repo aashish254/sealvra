@@ -1,15 +1,15 @@
-"""Keyholder CLI (W10) — exact command surface, CONTRACT §9.
+"""Sealvra CLI (W10) — exact command surface, CONTRACT §9.
 
 Commands (exact, no others exist):
 
-    keyholder daemon start|stop|status
-    keyholder keys add|list|show|delete|rotate
-    keyholder sessions list|create|kill|kill-all
-    keyholder audit verify|export
-    keyholder doctor
-    keyholder prove-isolation
-    keyholder --help
-    keyholder --version
+    sealvra daemon start|stop|status
+    sealvra keys add|list|show|delete|rotate
+    sealvra sessions list|create|kill|kill-all
+    sealvra audit verify|export
+    sealvra doctor
+    sealvra prove-isolation
+    sealvra --help
+    sealvra --version
 
 Deliberately absent — there is no command or flag that displays a
 stored key, re-displays a session token, approves a session or call,
@@ -104,6 +104,21 @@ Backend seams (no stubs in production code):
     exposes ``prove_isolation()`` -> {"ok": bool, "detail": str}.
     If neither interface exists, the proof FAILS (exit 3, KH-3002);
     an unprovable claim is never reported as a pass.
+    MEASURED STATUS on this build (2026-10-31, ``python -m sealvra
+    prove-isolation``): the command runs and exits 3 with KH-3002,
+    because neither interface was ever implemented —
+    ``sealvra.sessions`` has no ``create_ephemeral_session`` and
+    ``sealvra.broker`` has no module-level ``validate_token`` (the
+    real one is ``Broker.validate_token(token) -> Session | None``,
+    an instance method that takes only the token, so its return
+    cannot express the "denied for the other session" half) and no
+    module-level ``prove_isolation``. The failure is the fail-closed
+    branch working as specified, and
+    ``tests/test_w10_cli.py::test_prove_isolation_without_broker_fails_closed``
+    asserts it: session separation is therefore UNPROVEN by this
+    command on this build, never proven. Implementing the proof is a
+    contract-visible change to what a security claim asserts, so it
+    is an owner decision, not a drive-by fix.
   Backend errors that carry a ``code`` attribute in the catalogue
   above are passed through unchanged; other backend exceptions map
   to KH-1006.
@@ -189,6 +204,7 @@ import hashlib
 import os
 import re
 import sys
+import time
 
 VERSION = "0.1.0"
 
@@ -522,7 +538,7 @@ WIRED_TOKEN_LIFECYCLE = {
 }
 
 
-class KeyholderError(Exception):
+class SealvraError(Exception):
     """A catalogue error: same event, same code, every surface."""
 
     def __init__(self, code: str, message: str | None = None):
@@ -536,20 +552,20 @@ class _UsageError(Exception):
     """argparse-level usage problem, reported as KH-2001."""
 
 
-def _err(code: str, message: str | None = None) -> KeyholderError:
-    return KeyholderError(code, message)
+def _err(code: str, message: str | None = None) -> SealvraError:
+    return SealvraError(code, message)
 
 
-def _backend_error(exc: Exception) -> KeyholderError:
+def _backend_error(exc: Exception) -> SealvraError:
     """Map a backend exception onto the catalogue, passing codes through."""
     code = getattr(exc, "code", None)
     if isinstance(code, str) and code in RETIRED_CODES:
-        return KeyholderError(RETIRED_CODES[code], str(exc) or None)
+        return SealvraError(RETIRED_CODES[code], str(exc) or None)
     if isinstance(code, str) and code in ERROR_CATALOGUE:
-        return KeyholderError(code, str(exc) or None)
-    if isinstance(exc, KeyholderError):
+        return SealvraError(code, str(exc) or None)
+    if isinstance(exc, SealvraError):
         return exc
-    return KeyholderError("KH-1006", f"backend error: {exc}")
+    return SealvraError("KH-1006", f"backend error: {exc}")
 
 
 def canonical_code(code: str) -> str:
@@ -562,17 +578,17 @@ def canonical_code(code: str) -> str:
     raise _err("KH-2001", f"unknown error code: {code!r}")
 
 
-def error_for_event(event: str, message: str | None = None) -> KeyholderError:
+def error_for_event(event: str, message: str | None = None) -> SealvraError:
     """One event = one code: build the catalogue error for an event."""
     code = EVENT_TO_CODE.get(event)
     if code is None:
         raise _err("KH-2001", f"unknown error event: {event!r}")
-    return KeyholderError(code, message)
+    return SealvraError(code, message)
 
 
-def no_os_auth_error() -> KeyholderError:
+def no_os_auth_error() -> SealvraError:
     """The single no-OS-auth outcome: refuse, as KH-1004 (exit 2)."""
-    return KeyholderError("KH-1004", NO_OS_AUTH_RULE)
+    return SealvraError("KH-1004", NO_OS_AUTH_RULE)
 
 
 def resolve_approval_timeout(accessibility: bool = False) -> int:
@@ -618,9 +634,9 @@ def quit_confirmation_text(live_count: int | None = None) -> str:
     sessions; destruction is a separate, explicit action."""
     count = f"{live_count} live session(s) " if live_count is not None else "live sessions "
     return (
-        f"Quitting closes Keyholder but does not kill {count}or stop "
+        f"Quitting closes Sealvra but does not kill {count}or stop "
         "the daemon's sessions. Default: Keep sessions. To end "
-        "sessions, use the separate `keyholder sessions kill-all` "
+        "sessions, use the separate `sealvra sessions kill-all` "
         "action (or 'Quit and kill all' in the GUI)."
     )
 
@@ -679,59 +695,59 @@ def copy_agent_setup(snippet: str, token: str | None) -> str:
 
 def _load_daemon():
     try:
-        from keyholder import daemon
+        from sealvra import daemon
 
         return daemon
     except ImportError as exc:
         raise _err(
-            "KH-1006", f"daemon unavailable: keyholder.daemon is not installed ({exc.name})"
+            "KH-1006", f"daemon unavailable: sealvra.daemon is not installed ({exc.name})"
         ) from exc
 
 
 def _load_vault():
     try:
-        from keyholder import vault
+        from sealvra import vault
 
         return vault
     except ImportError as exc:
         raise _err(
-            "KH-1006", f"vault unavailable: keyholder.vault is not installed ({exc.name})"
+            "KH-1006", f"vault unavailable: sealvra.vault is not installed ({exc.name})"
         ) from exc
 
 
 def _load_sessions():
     try:
-        from keyholder import sessions
+        from sealvra import sessions
 
         return sessions
     except ImportError as exc:
         raise _err(
             "KH-1006",
-            f"sessions unavailable: keyholder.sessions is not installed ({exc.name})",
+            f"sessions unavailable: sealvra.sessions is not installed ({exc.name})",
         ) from exc
 
 
 def _load_broker():
     try:
-        from keyholder import broker
+        from sealvra import broker
 
         return broker
     except ImportError as exc:
         raise _err(
             "KH-3002",
-            f"isolation proof failed: keyholder.broker is not installed ({exc.name}); "
+            f"isolation proof failed: sealvra.broker is not installed ({exc.name}); "
             "an unprovable isolation claim is never reported as a pass",
         ) from exc
 
 
 def _load_audit():
     try:
-        from keyholder import audit
+        from sealvra import audit
 
         return audit
     except ImportError as exc:
         raise _err(
-            "KH-1005", f"audit unavailable: keyholder.audit is not installed ({exc.name})"
+            "KH-1005", f"audit unavailable: sealvra.audit is not installed ({exc.name})"
         ) from exc
 
 
@@ -741,6 +757,99 @@ def _field(obj, name, default=None):
     if isinstance(obj, dict):
         return obj.get(name, default)
     return getattr(obj, name, default)
+
+
+def _split_live_sessions(items):
+    """Split session records into (live, terminated) for `sessions list`.
+
+    CONTRACT §3: a session at its TTL, its idle deadline, or a kill is
+    TERMINATED, and nothing resurrects it. The daemon's IPC record view
+    still carries those records (with ``killed`` set) because a GUI has to
+    show what it killed; the operator's list is the set of tokens that can
+    STILL authenticate, and a terminated record left in it would read as a
+    live session. Both groups are printed -- the count of the second, the
+    rows of the first -- so nothing is hidden, only separated.
+    """
+    now = time.time()
+    live, terminated = [], []
+    for item in items:
+        killed = bool(_field(item, "killed", False))
+        expires_at = _field(item, "expires_at", None)
+        idle_deadline = _field(item, "idle_deadline", None)
+        dead = killed
+        if not dead and isinstance(expires_at, (int, float)):
+            dead = now >= expires_at
+        if not dead and isinstance(idle_deadline, (int, float)):
+            dead = now >= idle_deadline
+        (terminated if dead else live).append(item)
+    return live, terminated
+
+
+def _print_sessions(items, out) -> None:
+    """Render `sessions list` for either backend (daemon IPC or local)."""
+    live, terminated = _split_live_sessions(items)
+    if not live:
+        out.write("no live sessions\n")
+    for item in live:
+        out.write(
+            f"{_field(item, 'session_id')}  "
+            f"key {_field(item, 'key_id')}  "
+            f"{_field(item, 'provider')}  "
+            f"{_field(item, 'session_class')}  "
+            f"transport {_field(item, 'transport')}  "
+            f"expires {_field(item, 'expires_at')}\n"
+        )
+    if terminated:
+        out.write(
+            f"{len(terminated)} terminated session(s) not listed above "
+            "-- killed or past expiry; their tokens deny. The daemon's "
+            "session records still hold them (`sessions.list` over IPC is "
+            "the record view); killing one again reports KH-1002.\n")
+    out.write("Session tokens are never shown here — a token is shown exactly once, at creation.\n")
+
+
+def _sessions_to_json(items) -> list[dict]:
+    """Convert session items to JSON-serializable list (metadata only)."""
+    result = []
+    now = time.time()
+    for item in items:
+        expires_at = _field(item, "expires_at", None)
+        idle_deadline = _field(item, "idle_deadline", None)
+        dead = bool(_field(item, "killed", False))
+        if not dead and isinstance(expires_at, (int, float)):
+            dead = now >= expires_at
+        if not dead and isinstance(idle_deadline, (int, float)):
+            dead = now >= idle_deadline
+        if not dead:
+            result.append({
+                "session_id": _field(item, "session_id"),
+                "key_id": _field(item, "key_id"),
+                "provider": _field(item, "provider"),
+                "session_class": _field(item, "session_class"),
+                "transport": _field(item, "transport"),
+                "expires_at": expires_at,
+                "idle_deadline": idle_deadline,
+            })
+    return result
+
+
+def _keys_to_json(keys: list) -> list[dict]:
+    """Convert key records to JSON-serializable list (metadata only)."""
+    result = []
+    for record in keys:
+        # Count live sessions for this key (we'll fetch from broker later if needed)
+        result.append({
+            "key_id": _field(record, "key_id"),
+            "provider": _field(record, "provider"),
+            "label": _field(record, "label"),
+            "display_name": _field(record, "display_name"),
+            "created_at": _field(record, "created_at"),
+            "fingerprint": _field(record, "fingerprint"),
+            "needs_rotation": _field(record, "needs_rotation"),
+            "previously_rotated": _field(record, "previously_rotated"),
+            "compromised": bool(_field(record, "compromised")),
+        })
+    return result
 
 
 # ------------------------------------------------------------------- TTL
@@ -796,15 +905,15 @@ def _fingerprint(secret: str) -> str:
 
 # ------------------------------------------------------------- first run
 
-FIRST_RUN_TEXT = """Keyholder {version} — first run
+FIRST_RUN_TEXT = """Sealvra {version} — first run
 ================================
 
-A note on trust: we will never contact you. If anyone claiming to be Keyholder emails,
+A note on trust: we will never contact you. If anyone claiming to be Sealvra emails,
 messages, or calls you asking for a key, a token, or a recovery phrase,
 it is not us. This product has no account, no cloud, and no support
 channel that reaches out to you.
 
-What Keyholder does: it stops *key* theft, not *data* theft.
+What Sealvra does: it stops *key* theft, not *data* theft.
 Your long-lived keys are stored only on this machine and are never
 sent to us. An agent's approved API call does send the key in that
 call's header to the provider you chose — that is the job you
@@ -821,10 +930,10 @@ to the provider (see above); undetected leaks would not increment
 this counter.
 
 Next steps:
-  keyholder keys add     import a key (you will be asked whether it
+  sealvra keys add     import a key (you will be asked whether it
                          was ever pasted anywhere)
-  keyholder doctor       inventory standing credentials on this machine
-  keyholder --help       full command list
+  sealvra doctor       inventory standing credentials on this machine
+  sealvra --help       full command list
 """
 
 
@@ -836,6 +945,32 @@ def _cmd_first_run(out) -> int:
 # ---------------------------------------------------------------- daemon
 
 
+def _write_proxy_status(daemon, out) -> None:
+    """Print what the proxy actually is: served or not, and where a
+    forwarded call would go. A daemon with no proxy says so with the
+    reason; nothing here implies a broker that is not listening."""
+    detail = daemon.status_detail() if hasattr(daemon, "status_detail") else {}
+    proxy = detail.get("proxy") if isinstance(detail, dict) else None
+    if not isinstance(proxy, dict) or not proxy:
+        out.write("proxy: status not reported by this daemon\n")
+        return
+    if proxy.get("served"):
+        out.write(f"proxy: serving on {proxy.get('proxy_host')}:{proxy.get('port')}\n")
+    else:
+        out.write(
+            f"proxy: NOT served — {proxy.get('not_served_reason') or 'no proxy server was started'}\n")
+    bases = proxy.get("upstream_bases")
+    if isinstance(bases, dict):
+        for provider in sorted(bases):
+            out.write(f"upstream {provider}: {bases[provider]}\n")
+    elif proxy.get("upstream_bases_error"):
+        out.write(f"upstream bases: unresolved — {proxy['upstream_bases_error']}\n")
+    if proxy.get("approver_mode"):
+        out.write(f"approver: {proxy['approver_mode']}\n")
+    out.write(f"audit root: {proxy.get('audit_root')}\n")
+    out.write(f"vault dir: {proxy.get('vault_dir')}\n")
+
+
 def _cmd_daemon(args, out) -> int:
     daemon = _load_daemon()
     try:
@@ -844,6 +979,7 @@ def _cmd_daemon(args, out) -> int:
             if _field(info, "running"):
                 pid = _field(info, "pid")
                 out.write(f"daemon: running{f' (pid {pid})' if pid else ''}\n")
+                _write_proxy_status(daemon, out)
             else:
                 out.write("daemon: stopped\n")
             return 0
@@ -871,7 +1007,7 @@ def _cmd_daemon(args, out) -> int:
                 out.write(
                     "daemon: stopped — sessions kept (quit defaults to Keep "
                     "sessions; end them explicitly with "
-                    "`keyholder sessions kill-all`)\n"
+                    "`sealvra sessions kill-all`)\n"
                 )
             else:
                 # Backend did not report a disposition: never claim
@@ -879,14 +1015,41 @@ def _cmd_daemon(args, out) -> int:
                 out.write(
                     "daemon: stopped — session disposition not reported by "
                     "the daemon; end any remaining sessions explicitly with "
-                    "`keyholder sessions kill-all`\n"
+                    "`sealvra sessions kill-all`\n"
                 )
             return 0
-    except KeyholderError:
+    except SealvraError:
         raise
     except Exception as exc:  # backend failure, catalogue-mapped
         raise _backend_error(exc) from exc
     raise _err("KH-2001", "unknown daemon command")
+
+
+def _notify(message: str) -> None:
+    """Best-effort macOS notification; never fatal, never carries key material.
+
+    The message is handed to osascript as an argv element instead of being
+    spliced into AppleScript source: a display name is user-chosen text, and
+    interpolating it into a string literal would let one quote character
+    break out and run arbitrary script on the owner's machine.
+    """
+    if sys.platform != "darwin":
+        return
+    script = (
+        "on run argv\n"
+        'display notification (item 1 of argv) with title "Sealvra" '
+        'sound name "Glass"\n'
+        "end run"
+    )
+    try:
+        import subprocess
+
+        subprocess.run(["osascript", "-e", script, message],
+                       check=False, capture_output=True, timeout=5)
+    except Exception:
+        # A notification that cannot be delivered must not change the
+        # security outcome: the kills and the vault flag already happened.
+        pass
 
 
 # ------------------------------------------------------------------ keys
@@ -897,29 +1060,82 @@ def _cmd_keys(args, out) -> int:
     try:
         if args.keys_cmd == "list":
             keys = vault.list_keys()
+            output_format = getattr(args, 'output', 'text')
+            
+            # JSON output (metadata only)
+            if output_format == 'json':
+                import json
+                data = _keys_to_json(keys)
+                out.write(json.dumps(data, indent=2))
+                out.write("\n")
+                return 0
+            
+            # Text output with optional grouping
             if not keys:
                 out.write("no keys in vault\n")
-            for record in keys:
-                line = (
-                    f"{_field(record, 'key_id')}  "
-                    f"{_field(record, 'provider')}  "
-                    f"{_field(record, 'label')}  "
-                    f"created {_field(record, 'created_at')}"
-                )
-                out.write(line + "\n")
-                if _field(record, "needs_rotation"):
-                    out.write(
-                        "  WARNING: NOT YET ROTATED — this key was (or may "
-                        "have been) pasted somewhere before import. Rotate "
-                        "it at the provider before its first session, then "
-                        "record the rotation with `keyholder keys rotate "
-                        f"{_field(record, 'key_id')}`. This warning stays "
-                        "until rotation is recorded.\n"
+            
+            if getattr(args, 'by_provider', False):
+                # Group by provider
+                by_provider = {}
+                for record in keys:
+                    provider = _field(record, 'provider') or "(none)"
+                    if provider not in by_provider:
+                        by_provider[provider] = []
+                    by_provider[provider].append(record)
+                
+                for provider in sorted(by_provider.keys()):
+                    out.write(f"=== {provider.title()} ===\n")
+                    for record in by_provider[provider]:
+                        name = _field(record, 'display_name') or _field(record, 'label')
+                        line = (
+                            f"  {_field(record, 'key_id')}  "
+                            f"{name}  "
+                            f"created {_field(record, 'created_at')}"
+                        )
+                        out.write(line + "\n")
+                        if _field(record, "compromised"):
+                            out.write(
+                                "    COMPROMISED — sessions killed, no new one "
+                                "can start for this key.\n"
+                            )
+                        elif _field(record, "needs_rotation"):
+                            out.write(
+                                "    WARNING: NOT YET ROTATED — this key was (or may "
+                                "have been) pasted somewhere before import.\n"
+                            )
+            else:
+                # Traditional flat list
+                for record in keys:
+                    name = _field(record, 'display_name') or _field(record, 'label')
+                    line = (
+                        f"{_field(record, 'key_id')}  "
+                        f"{_field(record, 'provider')}  "
+                        f"{name}  "
+                        f"created {_field(record, 'created_at')}"
                     )
-            out.write(
-                "Broker-observed departures are counted in the audit log; "
-                "undetected leaks would not appear there.\n"
-            )
+                    out.write(line + "\n")
+                    if _field(record, "compromised"):
+                        out.write(
+                            "  COMPROMISED — every session for this key was "
+                            "killed and no new one can start. Import the "
+                            "replacement, then `sealvra keys delete "
+                            f"{_field(record, 'key_id')}`.\n"
+                        )
+                    elif _field(record, "needs_rotation"):
+                        out.write(
+                            "  WARNING: NOT YET ROTATED — this key was (or may "
+                            "have been) pasted somewhere before import. Rotate "
+                            "it at the provider before its first session, then "
+                            "record the rotation with `sealvra keys rotate "
+                            f"{_field(record, 'key_id')}`. This warning stays "
+                            "until rotation is recorded.\n"
+                        )
+            
+            if output_format != 'json':
+                out.write(
+                    "Broker-observed departures are counted in the audit log; "
+                    "undetected leaks would not appear there.\n"
+                )
             return 0
 
         if args.keys_cmd == "show":
@@ -929,16 +1145,30 @@ def _cmd_keys(args, out) -> int:
             out.write(f"key_id: {_field(record, 'key_id')}\n")
             out.write(f"provider: {_field(record, 'provider')}\n")
             out.write(f"label: {_field(record, 'label')}\n")
+            display_name = _field(record, 'display_name')
+            if display_name:
+                out.write(f"display_name: {display_name}\n")
             out.write(f"created_at: {_field(record, 'created_at')}\n")
             fingerprint = _field(record, "fingerprint")
             if fingerprint:
                 out.write(f"fingerprint: {fingerprint}\n")
-            if _field(record, "needs_rotation"):
+            previously_rotated = _field(record, "previously_rotated")
+            if previously_rotated:
+                out.write("previously_rotated: true\n")
+            if _field(record, "compromised"):
+                out.write(
+                    "COMPROMISED: this key was marked compromised. Every "
+                    "session for it was killed and no new one can start. "
+                    "Rotation does not clear this — import the replacement "
+                    "with `sealvra keys add` and delete this one with "
+                    f"`sealvra keys delete {_field(record, 'key_id')}`.\n"
+                )
+            elif _field(record, "needs_rotation"):
                 out.write(
                     "WARNING: NOT YET ROTATED — this key was (or may have "
                     "been) pasted somewhere before import. Rotate it at the "
                     "provider before its first session, then record the "
-                    "rotation with `keyholder keys rotate "
+                    "rotation with `sealvra keys rotate "
                     f"{_field(record, 'key_id')}`.\n"
                 )
             return 0
@@ -950,6 +1180,37 @@ def _cmd_keys(args, out) -> int:
             label = args.label or _ask("Label for this key: ").strip()
             if not label:
                 raise _err("KH-2001", "label must not be empty")
+            
+            # Prompt for display name (user-friendly name) if not provided via arg
+            if args.display_name:
+                display_name_input = args.display_name.strip()
+            else:
+                display_name_input = _ask(
+                    "What would you like to call this key? "
+                    "[default: Provider • XXXX, leave blank to accept]: "
+                ).strip()
+
+            if display_name_input:
+                clash = [
+                    k for k in vault.list_keys()
+                    if (_field(k, "display_name") or "").lower()
+                    == display_name_input.lower()
+                ]
+                if clash:
+                    out.write(
+                        f"WARNING: a key is already called "
+                        f"{display_name_input!r} "
+                        f"({_field(clash[0], 'key_id')}). Two identically named "
+                        "keys are easy to pick the wrong one for, and after a "
+                        "leak choosing wrongly means the compromised key keeps "
+                        "running.\n"
+                    )
+                    confirm = ""
+                    while confirm not in ("y", "n"):
+                        confirm = _ask("Use this name anyway? (y/n): ").strip().lower()
+                    if confirm == "n":
+                        display_name_input = ""
+
             out.write(
                 "A key pasted into an IDE chat or another app can live on "
                 "in that app's cloud history even after you delete it here "
@@ -966,19 +1227,23 @@ def _cmd_keys(args, out) -> int:
             ever_pasted = answer in ("yes", "don't know")
             secret = _ask_secret("Paste key (input hidden, never printed): ")
             try:
-                record = vault.add_key(provider, label, secret, ever_pasted)
+                record = vault.add_key(provider, label, secret, ever_pasted, 
+                                      display_name_input if display_name_input else None)
             finally:
                 # Transient only: the CLI keeps no copy of the secret.
                 fingerprint = _fingerprint(secret)
                 del secret
+            # Display what was actually stored (vault may have filled in a default)
+            actual_display = record.display_name if record.display_name else label
             out.write(f"key added: {_field(record, 'key_id')} ({provider}, {label})\n")
             out.write(f"fingerprint: {fingerprint}\n")
+            out.write(f"display name: {actual_display}\n")
             if ever_pasted:
                 out.write(
                     "WARNING: NOT YET ROTATED — this key was (or may have "
                     "been) pasted somewhere before import. You must rotate "
                     "it at the provider before its first session, then "
-                    "record the rotation with `keyholder keys rotate "
+                    "record the rotation with `sealvra keys rotate "
                     f"{_field(record, 'key_id')}`. This warning stays until "
                     "rotation is recorded, and no session can start for "
                     "this key until then.\n"
@@ -1017,7 +1282,57 @@ def _cmd_keys(args, out) -> int:
                 "sessions may now start for this key\n"
             )
             return 0
-    except KeyholderError:
+
+        if args.keys_cmd == "mark-compromised":
+            record = vault.get_key(args.key_id)
+            if record is None:
+                raise _err("KH-1002", f"key not found: {args.key_id}")
+            display_name = _field(record, "display_name") or _field(record, "label")
+            provider = _field(record, "provider") or ""
+
+            # Flag first, then kill, and never let the kill path abort the
+            # command: with no daemon the session backend has no
+            # list_sessions(), and an unhandled failure there would report a
+            # compromise as a failed command while leaving the key usable.
+            vault.mark_key_compromised(args.key_id)
+
+            # Audit is written by the kill path it goes through:
+            # audit.EVENT_TYPES is a closed vocabulary with no
+            # "key_compromised" member, so minting a CLI-side event type here
+            # would be a CONTRACT schema change. The durable record of this
+            # action is the authenticated header flag itself.
+            try:
+                sessions_store = _load_sessions()
+                killed = 0
+                for session in sessions_store.list_sessions():
+                    if _field(session, "key_id") == args.key_id:
+                        sessions_store.kill_session(_field(session, "session_id"))
+                        killed += 1
+            except Exception as exc:
+                kill_note = (
+                    f"could not enumerate sessions to kill them ({type(exc).__name__}); "
+                    "the key is blocked, but any session already minted may "
+                    "still live until the daemon is reachable or it expires"
+                )
+            else:
+                kill_note = f"sessions killed: {killed}"
+
+            _notify(f"Sessions killed for {provider.title()} ({display_name})")
+
+            out.write(f"{kill_note}\n")
+            out.write(
+                f"key marked COMPROMISED: {args.key_id} "
+                f"({provider}, {display_name})\n"
+            )
+            out.write(
+                "this key is blocked — no session can start for it. Rotate "
+                "it at the provider, import the new key with `sealvra keys "
+                f"add`, then retire this one with `sealvra keys delete "
+                f"{args.key_id}`.\n"
+            )
+            return 0
+
+    except SealvraError:
         raise
     except Exception as exc:
         raise _backend_error(exc) from exc
@@ -1047,27 +1362,60 @@ def _daemon_sessions_client():
 def _cmd_sessions_daemon(client, args, out) -> int:
     """Sessions commands over daemon IPC (v0.2 manager integration).
 
-    Returns an exit code. Raises KeyholderError (via _backend_error
+    Returns an exit code. Raises SealvraError (via _backend_error
     mapping of DaemonError codes) on daemon-side failures. The token
     is printed exactly once, at creation, from the IPC reply only.
     """
     if args.sessions_cmd == "list":
         result = client.request("sessions.list")
-        items = result.get("sessions", [])
-        if not items:
-            out.write("no sessions\n")
-        for item in items:
-            out.write(
-                f"{_field(item, 'session_id')}  "
-                f"key {_field(item, 'key_id')}  "
-                f"{_field(item, 'provider')}  "
-                f"{_field(item, 'session_class')}  "
-                f"transport {_field(item, 'transport')}  "
-                f"expires {_field(item, 'expires_at')}  "
-                f"killed={_field(item, 'killed')}\n"
-            )
+        sessions_data = result.get("sessions", [])
+        
+        # JSON output (metadata only)
+        if getattr(args, 'output', 'text') == 'json':
+            import json
+            data = _sessions_to_json(sessions_data)
+            out.write(json.dumps(data, indent=2))
+            out.write("\n")
+            return 0
+        
+        # Text output (possibly compact)
+        live, terminated = _split_live_sessions(sessions_data)
+        if not live:
+            out.write("no live sessions\n")
+        else:
+            for item in live:
+                if getattr(args, 'compact', False):
+                    # Compact format: truncated session_id + provider tag
+                    sess_id = _field(item, 'session_id')
+                    key_id = _field(item, 'key_id')
+                    provider = _field(item, 'provider')
+                    expires_at = _field(item, 'expires_at')
+                    # Truncate IDs for compact view
+                    short_sess = sess_id[:9] + "..." if len(sess_id) > 9 else sess_id
+                    short_key = key_id[:9] + "..." if len(key_id) > 9 else key_id
+                    out.write(
+                        f"[{short_sess}] key:{short_key} [{provider}] "
+                        f"class:{_field(item, 'session_class')} "
+                        f"expires:{expires_at}\n"
+                    )
+                else:
+                    out.write(
+                        f"{_field(item, 'session_id')}  "
+                        f"key {_field(item, 'key_id')}  "
+                        f"{_field(item, 'provider')}  "
+                        f"{_field(item, 'session_class')}  "
+                        f"transport {_field(item, 'transport')}  "
+                        f"expires {_field(item, 'expires_at')}\n"
+                    )
+            
+            if terminated:
+                out.write(
+                    f"{len(terminated)} terminated session(s) not listed above "
+                    "-- killed or past expiry; their tokens deny. The daemon's "
+                    "session records still hold them (`sessions.list` over IPC is "
+                    "the record view); killing one again reports KH-1002.\n"
+                )
         out.write("Session tokens are never shown here — a token is shown exactly once, at creation.\n")
-        return 0
     if args.sessions_cmd == "create":
         vault = _load_vault()
         record = vault.get_key(args.key_id)
@@ -1078,7 +1426,7 @@ def _cmd_sessions_daemon(client, args, out) -> int:
                 "KH-1003",
                 "NOT YET ROTATED: this key was (or may have been) pasted "
                 "somewhere before import. Rotate it at the provider and "
-                f"record the rotation with `keyholder keys rotate {args.key_id}` "
+                f"record the rotation with `sealvra keys rotate {args.key_id}` "
                 "before its first session",
             )
         session_class = args.session_class
@@ -1112,6 +1460,16 @@ def _cmd_sessions_daemon(client, args, out) -> int:
                 "Save it now in the agent's own session setup. If it is lost, "
                 "kill this session and create a new one — sessions are never extended.\n"
             )
+        pop_hex = result.get("pop_key_hex")
+        if pop_hex:
+            out.write(
+                "PoP key (test-mode handoff only — shown once, with the token, "
+                "by the call that minted them; production agents sign through "
+                "the wrapper/sidecar, and no command re-displays either):\n")
+            # The KH_POP_TEST marker is the harness convention named in
+            # tests/test_e2e.py: the value after it is hex, decoded by
+            # the reader. It appears only in test-mode create output.
+            out.write(f"KH_POP_TEST {pop_hex}\n")
         return 0
     if args.sessions_cmd == "kill":
         result = client.request("sessions.kill",
@@ -1158,26 +1516,59 @@ def _cmd_sessions(args, out) -> int:
     if client is not None:
         try:
             return _cmd_sessions_daemon(client, args, out)
-        except KeyholderError:
+        except SealvraError:
             raise
         except Exception as exc:
             raise _backend_error(exc) from exc
     sessions = _load_sessions()
     try:
         if args.sessions_cmd == "list":
-            items = sessions.list_sessions()
-            if not items:
-                out.write("no sessions\n")
-            for item in items:
-                out.write(
-                    f"{_field(item, 'session_id')}  "
-                    f"key {_field(item, 'key_id')}  "
-                    f"{_field(item, 'provider')}  "
-                    f"{_field(item, 'session_class')}  "
-                    f"transport {_field(item, 'transport')}  "
-                    f"expires {_field(item, 'expires_at')}  "
-                    f"killed={_field(item, 'killed')}\n"
-                )
+            sessions_data = sessions.list_sessions()
+            
+            # JSON output (metadata only)
+            if getattr(args, 'output', 'text') == 'json':
+                import json
+                data = _sessions_to_json(sessions_data)
+                out.write(json.dumps(data, indent=2))
+                out.write("\n")
+                return 0
+            
+            # Text output (possibly compact)
+            live, terminated = _split_live_sessions(sessions_data)
+            if not live:
+                out.write("no live sessions\n")
+            else:
+                for item in live:
+                    if getattr(args, 'compact', False):
+                        # Compact format: truncated session_id + provider tag
+                        sess_id = _field(item, 'session_id')
+                        key_id = _field(item, 'key_id')
+                        provider = _field(item, 'provider')
+                        expires_at = _field(item, 'expires_at')
+                        short_sess = sess_id[:9] + "..." if len(sess_id) > 9 else sess_id
+                        short_key = key_id[:9] + "..." if len(key_id) > 9 else key_id
+                        out.write(
+                            f"[{short_sess}] key:{short_key} [{provider}] "
+                            f"class:{_field(item, 'session_class')} "
+                            f"expires:{expires_at}\n"
+                        )
+                    else:
+                        out.write(
+                            f"{_field(item, 'session_id')}  "
+                            f"key {_field(item, 'key_id')}  "
+                            f"{_field(item, 'provider')}  "
+                            f"{_field(item, 'session_class')}  "
+                            f"transport {_field(item, 'transport')}  "
+                            f"expires {_field(item, 'expires_at')}\n"
+                        )
+                
+                if terminated:
+                    out.write(
+                        f"{len(terminated)} terminated session(s) not listed above "
+                        "-- killed or past expiry; their tokens deny. The daemon's "
+                        "session records still hold them (`sessions.list` over IPC is "
+                        "the record view); killing one again reports KH-1002.\n"
+                    )
             out.write("Session tokens are never shown here — a token is shown exactly once, at creation.\n")
             return 0
 
@@ -1186,12 +1577,20 @@ def _cmd_sessions(args, out) -> int:
             record = vault.get_key(args.key_id)
             if record is None:
                 raise _err("KH-1002", f"key not found: {args.key_id}")
+            if _field(record, "compromised"):
+                raise _err(
+                    "KH-1003",
+                    "COMPROMISED: this key was marked compromised, so no "
+                    "session can start for it. Rotating it does not clear "
+                    "this — import the replacement with `sealvra keys add` "
+                    f"and remove this one with `sealvra keys delete {args.key_id}`",
+                )
             if _field(record, "needs_rotation"):
                 raise _err(
                     "KH-1003",
                     "NOT YET ROTATED: this key was (or may have been) pasted "
                     "somewhere before import. Rotate it at the provider and "
-                    f"record the rotation with `keyholder keys rotate {args.key_id}` "
+                    f"record the rotation with `sealvra keys rotate {args.key_id}` "
                     "before its first session",
                 )
             session_class = args.session_class
@@ -1258,7 +1657,7 @@ def _cmd_sessions(args, out) -> int:
                 "calls already sent are not recalled\n"
             )
             return 0
-    except KeyholderError:
+    except SealvraError:
         raise
     except Exception as exc:
         raise _backend_error(exc) from exc
@@ -1306,7 +1705,7 @@ def _cmd_audit(args, out) -> int:
                 f"to {path} — key material is never exported\n"
             )
             return 0
-    except KeyholderError:
+    except SealvraError:
         raise
     except Exception as exc:
         raise _backend_error(exc) from exc
@@ -1388,7 +1787,7 @@ def _doctor_findings(home: str, cwd: str, environ) -> list:
             findings.append(
                 f"CLI credential store present: {path} (mode {mode}) — "
                 "any process running as you can read it; prefer moving "
-                "this key into Keyholder and rotating it at the provider"
+                "this key into Sealvra and rotating it at the provider"
             )
     for rel in MCP_CONFIGS:
         base = cwd if rel == ".mcp.json" else home
@@ -1430,7 +1829,7 @@ def _cmd_doctor(args, out) -> int:
         out.write(f"warning: {finding}\n")
     out.write(
         "Note: on Linux, stored credentials are user-scoped — another "
-        "process running as you can read them. Keyholder's vault does "
+        "process running as you can read them. Sealvra's vault does "
         "not change that for keys left standing outside it; move them "
         "in and rotate them at the provider.\n"
     )
@@ -1494,7 +1893,7 @@ def _cmd_prove_isolation(args, out) -> int:
             "prove-isolation: FAILED — no broker isolation-check interface "
             "is available; an unprovable claim is never reported as a pass",
         )
-    except KeyholderError:
+    except SealvraError:
         raise
     except Exception as exc:
         # A proof that cannot run, or whose backend fails, is a FAILED
@@ -1516,14 +1915,14 @@ class _Parser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(
-        prog="keyholder",
+        prog="sealvra",
         description=(
-            "Keyholder v0.1 — local-first key holder for AI agents. "
+            "Sealvra v0.1 — local-first key holder for AI agents. "
             "Long-lived keys stay on this machine; agents get only scoped, "
             "short-lived session tokens through the broker."
         ),
     )
-    parser.add_argument("--version", action="version", version=f"keyholder {VERSION}")
+    parser.add_argument("--version", action="version", version=f"sealvra {VERSION}")
     sub = parser.add_subparsers(dest="command")
 
     daemon_p = sub.add_parser("daemon", help="start, stop, or report the daemon")
@@ -1534,22 +1933,36 @@ def build_parser() -> argparse.ArgumentParser:
 
     keys_p = sub.add_parser("keys", help="manage vault keys (never displays a key value)")
     keys_sub = keys_p.add_subparsers(dest="keys_cmd", required=True)
-    keys_sub.add_parser("list", help="list keys with rotation warnings")
+    keys_list_p = keys_sub.add_parser("list", help="list keys with rotation warnings")
+    keys_list_p.add_argument("--by-provider", action="store_true",
+                             help="group keys by provider in output")
+    keys_list_p.add_argument("--output", choices=("text", "json"), default="text",
+                             help="output format (default: text)")
     show_p = keys_sub.add_parser("show", help="show one key's detail (fingerprint only, never the key)")
     show_p.add_argument("key_id", help="key id, e.g. key-<16 hex chars>")
     add_p = keys_sub.add_parser("add", help="import a key (asks whether it was ever pasted anywhere)")
     add_p.add_argument("--provider", choices=("github", "gemini"), help="provider of the key")
     add_p.add_argument("--label", help="label for the key")
+    add_p.add_argument("--display-name", help="user-friendly display name for this key")
     delete_p = keys_sub.add_parser("delete", help="delete a key (typed confirmation required)")
     delete_p.add_argument("key_id", help="key id to delete")
     rotate_p = keys_sub.add_parser(
         "rotate", help="record a provider rotation by storing the new key"
     )
     rotate_p.add_argument("key_id", help="key id to rotate")
+    mark_p = keys_sub.add_parser(
+        "mark-compromised", help="mark a key as compromised and block all sessions"
+    )
+    mark_p.add_argument("key_id", help="key id to mark as compromised")
+
 
     sessions_p = sub.add_parser("sessions", help="manage sessions (tokens shown exactly once, at creation)")
     sessions_sub = sessions_p.add_subparsers(dest="sessions_cmd", required=True)
-    sessions_sub.add_parser("list", help="list sessions (tokens are never shown here)")
+    sessions_list_p = sessions_sub.add_parser("list", help="list sessions (tokens are never shown here)")
+    sessions_list_p.add_argument("--compact", action="store_true",
+                                 help="compact output with truncated IDs")
+    sessions_list_p.add_argument("--output", choices=("text", "json"), default="text",
+                                 help="output format (default: text)")
     create_p = sessions_sub.add_parser("create", help="create a session (token shown exactly once)")
     create_p.add_argument("key_id", help="key id for this session (exactly one key per session)")
     create_p.add_argument(
@@ -1618,7 +2031,7 @@ def main(argv=None) -> int:
         if args.command is None:
             return _cmd_first_run(sys.stdout)
         return _COMMANDS[args.command](args, sys.stdout)
-    except KeyholderError as exc:
+    except SealvraError as exc:
         print(
             f"error {exc.code}: {exc.message} "
             f"(next step: {NEXT_STEPS.get(exc.code, 'see --help')})",

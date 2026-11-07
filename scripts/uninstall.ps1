@@ -1,4 +1,4 @@
-# Keyholder v0.2 uninstaller (Windows) -- W20.
+# Sealvra v0.2 uninstaller (Windows) -- W20.
 #
 # DEFAULT BEHAVIOUR: remove the PROGRAM only (zipapp + launcher).
 # Vault data, platform-keychain items, and audit data are PRESERVED
@@ -33,8 +33,8 @@
 #     [-InstallRoot DIR] [-VaultDir DIR]
 #   powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 `
 #     -WipeData -ConfirmWipe [-InstallRoot DIR] [-VaultDir DIR]
-# Defaults: InstallRoot = $env:LOCALAPPDATA\Keyholder,
-# VaultDir = $env:LOCALAPPDATA\Keyholder\vault (or $env:KEYHOLDER_HOME
+# Defaults: InstallRoot = $env:LOCALAPPDATA\Sealvra,
+# VaultDir = $env:LOCALAPPDATA\Sealvra\vault (or $env:SEALVRA_HOME
 # when that variable is set).
 
 [CmdletBinding()]
@@ -48,11 +48,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 if ([string]::IsNullOrEmpty($InstallRoot)) {
-    $InstallRoot = Join-Path $env:LOCALAPPDATA "Keyholder"
+    $InstallRoot = Join-Path $env:LOCALAPPDATA "Sealvra"
 }
 if ([string]::IsNullOrEmpty($VaultDir)) {
-    if (-not [string]::IsNullOrEmpty($env:KEYHOLDER_HOME)) {
-        $VaultDir = $env:KEYHOLDER_HOME
+    if (-not [string]::IsNullOrEmpty($env:SEALVRA_HOME)) {
+        $VaultDir = $env:SEALVRA_HOME
     } else {
         $VaultDir = Join-Path $InstallRoot "vault"
     }
@@ -63,8 +63,8 @@ if ($WipeData -and -not $ConfirmWipe) {
     exit 1
 }
 
-$Launcher = Join-Path $InstallRoot "bin\keyholder.cmd"
-$Program = Join-Path $InstallRoot "keyholder.pyz"
+$Launcher = Join-Path $InstallRoot "bin\sealvra.cmd"
+$Program = Join-Path $InstallRoot "sealvra.pyz"
 
 # Kill live sessions first (best effort; a missing launcher or a
 # stopped daemon is not an error here -- the program is being removed).
@@ -79,7 +79,7 @@ $BinDir = Join-Path $InstallRoot "bin"
 if ((Test-Path $BinDir) -and ((Get-ChildItem $BinDir -Force | Measure-Object).Count -eq 0)) {
     Remove-Item -Force $BinDir
 }
-Write-Output "removed keyholder program and launcher."
+Write-Output "removed sealvra program and launcher."
 
 if (-not $WipeData) {
     Write-Output "preserved (NOT deleted): vault data, platform-keychain items, and audit data."
@@ -106,7 +106,7 @@ $Ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHHmmssZ")
 $Record = "{`"event_type`": `"vault_wipe`", `"ts`": `"$Ts`", `"vault_dir_removed`": true, `"note`": `"local wipe only; provider-side keys NOT revoked`"}"
 $HomeDir = $env:USERPROFILE
 if ([string]::IsNullOrEmpty($HomeDir)) { $HomeDir = $env:HOMEDRIVE + $env:HOMEPATH }
-$Receipt = Join-Path $HomeDir "keyholder-wipe-receipt-$Ts.json"
+$Receipt = Join-Path $HomeDir "sealvra-wipe-receipt-$Ts.json"
 # Pre-wipe record: append to the vault audit log first (if a vault
 # exists), then to a receipt OUTSIDE the vault so it survives deletion.
 if (Test-Path $VaultDir) {
@@ -124,5 +124,5 @@ if (Test-Path $VaultDir) {
 }
 Write-Output "wipe receipt kept at: $Receipt"
 Write-Output "manual step (not done by this script): remove any platform-keychain"
-Write-Output "items for Keyholder, and rotate/revoke the keys at GitHub / Gemini,"
+Write-Output "items for Sealvra, and rotate/revoke the keys at GitHub / Gemini,"
 Write-Output "because wiping local data does NOT revoke provider-side keys."

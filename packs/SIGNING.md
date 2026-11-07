@@ -33,7 +33,7 @@ CONTRACT section 13.3. Read this before changing any file in `packs/`.
 
 ## Loading rule (the flip)
 
-`keyholder.packs.load_pack` / `load_pack_directory` always verify
+`sealvra.packs.load_pack` / `load_pack_directory` always verify
 BOTH the content hash AND the signature against a trusted,
 non-revoked key. A pack failing either is REFUSED, never loaded,
 never silently fallen back to an unsigned or hash-only pack. There

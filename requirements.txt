@@ -1,4 +1,4 @@
-# Keyholder v0.2 — the ONLY allowed external dependencies (CONTRACT §1, §13.6 W19).
+# Sealvra v0.2 — the ONLY allowed external dependencies (CONTRACT §1, §13.6 W19).
 # Exactly two direct dependencies, pinned to versions actually installed
 # in the local .venv (see docs/supply-chain.md).
 # Transitive dependencies pulled in by these two (cffi,

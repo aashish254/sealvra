@@ -22,11 +22,11 @@ import http.server
 import threading
 import time
 import urllib.parse
-from keyholder.broker import Broker
-from keyholder.packs import load_pack
-from keyholder.policy import PolicyEngine
-from keyholder.proxy import GENERIC_DENIAL_BODY, ProxyConfig, ProxyEngine
-from keyholder.tokens import compute_pop
+from sealvra.broker import Broker
+from sealvra.packs import load_pack
+from sealvra.policy import PolicyEngine
+from sealvra.proxy import GENERIC_DENIAL_BODY, ProxyConfig, ProxyEngine
+from sealvra.tokens import compute_pop
 
 FRESH_NOW = 1793188800
 FAKE_KEYS = {"github": "TEST-ONLY-gh-proxy-key", "gemini": "TEST-ONLY-gemini-proxy-key"}
@@ -120,8 +120,8 @@ def tearDownModule():
 def _signed(token, pop_key, method, host, path, body=b""):
     ts = int(time.time())
     pop = compute_pop(pop_key, method, host, path, body, ts)
-    return [("X-Keyholder-Session", token), ("X-Keyholder-Pop", pop),
-            ("X-Keyholder-Timestamp", str(ts))]
+    return [("X-Sealvra-Session", token), ("X-Sealvra-Pop", pop),
+            ("X-Sealvra-Timestamp", str(ts))]
 
 
 def _make_proxy(broker, created, provider, approve_fn, decisions, outcomes):
@@ -235,23 +235,23 @@ def run_case(self, spec):
             return resp, before
 
         if name == "missing-token":
-            headers = [h for h in base_headers if h[0] != "X-Keyholder-Session"]
+            headers = [h for h in base_headers if h[0] != "X-Sealvra-Session"]
             resp, before = call(headers)
             assert resp.status == 401 and resp.body == GENERIC_DENIAL_BODY
             assert len(HITS) == before
         elif name == "unknown-token":
-            headers = [(k, "kh_sess_" + "x" * 32 if k == "X-Keyholder-Session" else v)
+            headers = [(k, "kh_sess_" + "x" * 32 if k == "X-Sealvra-Session" else v)
                        for k, v in base_headers]
             resp, before = call(headers)
             assert resp.status == 401 and resp.body == GENERIC_DENIAL_BODY
             assert len(HITS) == before
         elif name == "missing-pop":
-            headers = [h for h in base_headers if h[0] != "X-Keyholder-Pop"]
+            headers = [h for h in base_headers if h[0] != "X-Sealvra-Pop"]
             resp, before = call(headers)
             assert resp.status == 401 and resp.body == GENERIC_DENIAL_BODY
             assert len(HITS) == before
         elif name == "bad-pop":
-            headers = [(k, ("0" if v[0] != "0" else "1") + v[1:] if k == "X-Keyholder-Pop" else v)
+            headers = [(k, ("0" if v[0] != "0" else "1") + v[1:] if k == "X-Sealvra-Pop" else v)
                        for k, v in base_headers]
             resp, before = call(headers)
             assert resp.status == 401 and resp.body == GENERIC_DENIAL_BODY

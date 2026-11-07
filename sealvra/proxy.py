@@ -1,4 +1,4 @@
-"""Loopback proxy engine for Keyholder v0.1 (W04, CONTRACT §6, v3 §1G).
+"""Loopback proxy engine for Sealvra v0.1 (W04, CONTRACT §6, v3 §1G).
 
 Normative order of operations (CONTRACT §6, steps 1-9):
 
@@ -81,23 +81,34 @@ implementations -- this module never imports them beyond types/tokens):
       needs no tuple shim. A TEST approver is injected only through
       the explicit ``test_approver`` parameter (or a callable flagged
       with approval.mark_test_approver), and the engine RAISES unless
-      the test-harness marker env var KEYHOLDER_TEST_APPROVER is
+      the test-harness marker env var SEALVRA_TEST_APPROVER is
       exactly "1" (set only by tests, never by production code).
       With no approver at all the engine denies level-3 calls
       (KH-1004, fail closed) — the default is never a test double.
   audit_decision(entry: dict) -> None
       W09 writer; MUST fsync before returning and MUST pseudonymise
       session/key ids before persisting. Raising = refuse the call.
+      Written ONLY for the allowed decision that precedes a forward: a
+      denied call writes no decision entry (the entry is the
+      fsync-before-forward guarantee, and nothing was forwarded).
   audit_outcome(entry: dict) -> None
       W09 writer for the outcome entry. A failure here cannot recall
       an already-forwarded call; the engine marks itself degraded and
       refuses all NEW calls (fail closed, CONTRACT §8 disk-full rule).
+      DENIED calls are recorded here, with rule_id and zero bytes out:
+      the agent's response stays generic while the operator's audit
+      keeps the rule detail (CONTRACT §8).
   key_for(key_id) -> str | None
       Vault-backed real key, held in memory only for injection.
   on_success(session_id) -> None
       Broker hook that refreshes the idle deadline. Called only for
       relayed 2xx/3xx responses ("successful proxied call",
       CONTRACT §3); denied calls never refresh idle.
+  begin_call(session, call_id) / end_call(session, call_id)
+      Broker in-flight registry (CONTRACT §8): a call is registered
+      immediately before the bytes go upstream and completed when the
+      upstream response is fully read. A kill between the two lists the
+      call on the kill receipt and does NOT recall it.
   connect_host_allowed(session, host) -> bool
       Optional extra CONNECT host gate on top of the config allowlist.
 
@@ -124,8 +135,8 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Mapping, Sequence
 
-from keyholder.tokens import body_sha256_hex, verify_pop  # noqa: F401  (re-exported for W12)
-from keyholder.types import PolicyDecision, Session
+from sealvra.tokens import body_sha256_hex, verify_pop  # noqa: F401  (re-exported for W12)
+from sealvra.types import PolicyDecision, Session
 
 __all__ = [
     "DEFAULT_HOST",
@@ -142,7 +153,7 @@ __all__ = [
     "contains_secret",
     "validate_loopback_host",
     "make_server",
-    "KeyholderProxyHandler",
+    "SealvraProxyHandler",
 ]
 
 DEFAULT_HOST = "127.0.0.1"
@@ -152,7 +163,7 @@ DEFAULT_PORT = 8765
 # approval.py as TEST_APPROVER_ENV). Set ONLY by tests, never by
 # production code. A test approver in the proxy without this marker
 # exactly "1" raises at engine construction.
-TEST_APPROVER_ENV = "KEYHOLDER_TEST_APPROVER"
+TEST_APPROVER_ENV = "SEALVRA_TEST_APPROVER"
 
 # Agent-facing denial body: generic, always. No rule_id, no category,
 # no reason, no CONTRACT error code (those go to audit only, v3 N-G8).
@@ -166,7 +177,7 @@ _HOP_BY_HOP = {
     "proxy-connection", "proxy-authenticate",
 }
 _AGENT_CREDENTIAL_HEADERS = {"authorization", "x-goog-api-key"}
-_SESSION_HEADERS = {"x-keyholder-session", "x-keyholder-pop", "x-keyholder-timestamp"}
+_SESSION_HEADERS = {"x-sealvra-session", "x-sealvra-pop", "x-sealvra-timestamp"}
 # Response headers never relayed to the agent (credential/covert channels).
 _STRIP_RESPONSE_HEADERS = {"set-cookie", "set-cookie2", "www-authenticate",
                            "proxy-authenticate", "content-encoding",
@@ -646,6 +657,16 @@ class ProxyEngine:
         # ``lambda c: account.observe(c) is not None``). The approve
         # callable above is untouched: W02 owns it (CONTRACT §13.2).
         usage_observer: Callable[[bytes], bool] | None = None,
+        # Call lifecycle (CONTRACT section 8 kill receipt): a call is
+        # registered immediately before its bytes go upstream and
+        # completed when the upstream response is fully read, so a kill
+        # inside that window lists the call instead of claiming nothing
+        # was sent. The broker owns the registry (``register_in_flight`` /
+        # ``complete_in_flight``); the engine only names the calls.
+        # Last in the signature: pre-existing suites build the engine
+        # with up to 10 positional arguments.
+        begin_call: Callable[[Session, str], None] | None = None,
+        end_call: Callable[[Session, str], None] | None = None,
     ):
         validate_loopback_host(config.host)
         # v0.2 guard (CONTRACT §13.2): a test approver is allowed
@@ -667,7 +688,7 @@ class ProxyEngine:
                     "set %s=1 only in tests" % TEST_APPROVER_ENV)
             approve = test_approver
         elif approve is not None and getattr(
-                approve, "_keyholder_test_approver", False):
+                approve, "_sealvra_test_approver", False):
             if os.environ.get(TEST_APPROVER_ENV) != "1":
                 raise RuntimeError(
                     "test approver refused outside the test harness: "
@@ -682,6 +703,8 @@ class ProxyEngine:
         self.audit_outcome = audit_outcome
         self.key_for = key_for
         self.on_success = on_success
+        self.begin_call = begin_call
+        self.end_call = end_call
         self.connect_host_allowed = connect_host_allowed
         self.usage_observer = usage_observer
         self._pop_seen: dict[str, set[str]] = {}  # session_id -> pop hexes
@@ -710,8 +733,8 @@ class ProxyEngine:
         differently)."""
         pairs = headers.items() if isinstance(headers, Mapping) else headers
         out: dict[str, str] = {}
-        singletons = {"content-length", "host", "x-keyholder-session",
-                      "x-keyholder-pop", "x-keyholder-timestamp",
+        singletons = {"content-length", "host", "x-sealvra-session",
+                      "x-sealvra-pop", "x-sealvra-timestamp",
                       "transfer-encoding", "content-type"}
         for raw_name, raw_value in pairs:
             if not isinstance(raw_name, str) or not isinstance(raw_value, str):
@@ -735,6 +758,70 @@ class ProxyEngine:
         if writer is None:
             raise ProxyError(503, "KH-1005", "no audit writer configured")
         writer(entry)  # raises on failure -> caller refuses (fail closed)
+
+    def _audit_denial(self, session, method, canonical_path, decision,
+                      approval_id=None) -> None:
+        """CONTRACT section 8: the DENIED decision is recorded too.
+
+        The agent gets the generic denial body only; rule_id and level
+        exist for the operator, and this entry is the sole place they are
+        recorded. It goes through the OUTCOME writer, never the decision
+        writer: the decision entry is the fsync-before-forward guarantee
+        (``denied call must not write a decision entry``, and nothing was
+        forwarded), so a denial is recorded as an outcome with zero bytes
+        out. A denial is already the safe outcome, so a failed write
+        cannot change the answer to the agent -- it marks the engine
+        degraded (refusing NEW calls) and returns.
+        """
+        if self.audit_outcome is None:
+            return
+        rule_id = getattr(decision, "rule_id", None) or "no-policy-decision"
+        entry = {
+            "event_type": "proxy_outcome",
+            "session_id": session.session_id,
+            "key_id": session.key_id,
+            "provider": session.provider,
+            "method": method,
+            "canonical_path": canonical_path,
+            "decision": "deny",
+            "rule_id": rule_id,
+            "level": getattr(decision, "level", 4),
+            "outcome": "denied",
+            "bytes_in": 0,
+            "bytes_out": 0,
+            "approval_id": approval_id,
+            "transport": session.transport,
+            "transport_label": "absolute",
+            "host_only": False,
+        }
+        try:
+            self._audit(self.audit_outcome, entry)
+        except Exception:
+            self._set_degraded()
+
+    def _begin_call(self, session, method, forward_path) -> str:
+        """Register the call as forwarded, immediately before it goes out.
+
+        Returns the call id, which doubles as the kill receipt's line for
+        this call; ``""`` when no registry is wired.
+        """
+        call_id = "%s %s" % (method, forward_path)
+        if self.begin_call is not None:
+            try:
+                self.begin_call(session, call_id)
+            except Exception:
+                # A missing registry entry must never abort a call the
+                # policy already allowed; the receipt says less, the
+                # denial still cannot be bypassed.
+                call_id = ""
+        return call_id
+
+    def _end_call(self, session, call_id) -> None:
+        if call_id and self.end_call is not None:
+            try:
+                self.end_call(session, call_id)
+            except Exception:
+                pass
 
     def _check_session_live(self, session: Session, now: float) -> None:
         if session.killed:
@@ -791,7 +878,7 @@ class ProxyEngine:
             if claimed != len(body):
                 raise ProxyError(400, "KH-2001", "content-length mismatch")
 
-        token = hdrs.get("x-keyholder-session")
+        token = hdrs.get("x-sealvra-session")
         if not token:
             raise ProxyError(401, "KH-1002", "missing session token")
         session = self.lookup_session(token)
@@ -821,8 +908,8 @@ class ProxyEngine:
         # PoP (CONTRACT §4): HMAC over METHOD\nHOST\nCANONICAL_PATH\n
         # BODY_SHA256\nTIMESTAMP, 300 s skew, append-only replay cache.
         pop_key = self.pop_key_for(session.session_id)
-        pop_hex = hdrs.get("x-keyholder-pop")
-        timestamp = hdrs.get("x-keyholder-timestamp")
+        pop_hex = hdrs.get("x-sealvra-pop")
+        timestamp = hdrs.get("x-sealvra-timestamp")
         if pop_key is None or not verify_pop(pop_key, method, canon.host,
                                              canon.canonical_path, body,
                                              timestamp, pop_hex, now=now):
@@ -881,16 +968,20 @@ class ProxyEngine:
         # gate and is decided by the approval step below; only
         # level 4 / non-level-3 denials are denied here.
         if decision is None or decision.level >= 4:
+            self._audit_denial(session, method, canon.canonical_path, decision)
             raise ProxyError(403, "KH-1003", "policy denied")
         if not decision.allowed and decision.level != 3:
+            self._audit_denial(session, method, canon.canonical_path, decision)
             raise ProxyError(403, "KH-1003", "policy denied")
         if getattr(decision, "credential_creating", False):
             # v3 N-G2: credential-issuing endpoints are denied in v1.
+            self._audit_denial(session, method, canon.canonical_path, decision)
             raise ProxyError(403, "KH-1003", "credential-creating endpoint")
 
         approval_id = None
         if decision.level == 3:
             if self.approve is None:
+                self._audit_denial(session, method, canon.canonical_path, decision)
                 raise ProxyError(403, "KH-1004", "no approver configured")
             try:
                 result = self.approve(
@@ -900,6 +991,7 @@ class ProxyEngine:
             except Exception as exc:
                 # An approver failure is an approval denial, never a
                 # forward and never an upstream-error leak to the agent.
+                self._audit_denial(session, method, canon.canonical_path, decision)
                 raise ProxyError(403, "KH-1004",
                                  "approver failure: %r" % (exc,)) from None
             if hasattr(result, "approved"):
@@ -910,6 +1002,8 @@ class ProxyEngine:
                 # Legacy tuple: (approved: bool, approval_id | None).
                 approved, approval_id = result
             if not approved:
+                self._audit_denial(session, method, canon.canonical_path,
+                                   decision, approval_id)
                 raise ProxyError(403, "KH-1004", "approval denied/timeout")
             # Post-approval decision, mirroring W05 decision_after_approval:
             # allowed, now at allow-with-log level.
@@ -976,8 +1070,15 @@ class ProxyEngine:
         elif body:
             forward_headers["content-length"] = str(len(body))
 
-        status, resp_headers, resp_body = self._forward(
-            base, method, canon.forward_path, forward_headers, body)
+        # The call is in the broker's in-flight registry for exactly the
+        # window in which its bytes are upstream: a kill inside that
+        # window lists it and cannot recall it, a kill outside does not.
+        call_id = self._begin_call(session, method, canon.forward_path)
+        try:
+            status, resp_headers, resp_body = self._forward(
+                base, method, canon.forward_path, forward_headers, body)
+        finally:
+            self._end_call(session, call_id)
         content_type_out = ""
         for key, value in resp_headers:
             if key.lower() == "content-type":
@@ -1114,7 +1215,7 @@ class ProxyEngine:
             return ConnectDecision(allowed=False)
         if self.degraded:
             return ConnectDecision(allowed=False)
-        token = hdrs.get("x-keyholder-session")
+        token = hdrs.get("x-sealvra-session")
         if not token:
             return ConnectDecision(allowed=False)
         session = self.lookup_session(token)
@@ -1156,8 +1257,8 @@ class ProxyEngine:
         # path; "/" is the CONNECT convention -- see module docstring
         # note for the W12 wrapper).
         pop_key = self.pop_key_for(session.session_id)
-        pop_hex = hdrs.get("x-keyholder-pop")
-        timestamp = hdrs.get("x-keyholder-timestamp")
+        pop_hex = hdrs.get("x-sealvra-pop")
+        timestamp = hdrs.get("x-sealvra-timestamp")
         if pop_key is None or not verify_pop(pop_key, "CONNECT", host_part,
                                              "/", body, timestamp, pop_hex,
                                              now=now):
@@ -1265,13 +1366,13 @@ def _read_raw_head(rfile, limit=_MAX_HEADER_BYTES):
     return lines
 
 
-class KeyholderProxyHandler(BaseHTTPRequestHandler):
+class SealvraProxyHandler(BaseHTTPRequestHandler):
     """HTTP layer for the proxy engine. Parses the raw head itself so
     bare-LF / folding / NUL smuggling is rejected before any header
     parsing library can silently normalise it away."""
 
     protocol_version = "HTTP/1.1"
-    server_version = "KeyholderProxy/0.1"
+    server_version = "SealvraProxy/0.1"
     engine: ProxyEngine  # set by make_server
 
     def log_message(self, *args):  # keep test/daemon output readable
@@ -1475,7 +1576,7 @@ def make_server(config: ProxyConfig, engine: ProxyEngine,
     validate_loopback_host(bind_host)
     bind_port = port if port is not None else config.port
 
-    class _Handler(KeyholderProxyHandler):
+    class _Handler(SealvraProxyHandler):
         pass
 
     _Handler.engine = engine

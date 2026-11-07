@@ -15,7 +15,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from keyholder.sessions import (  # noqa: E402
+from sealvra.sessions import (  # noqa: E402
     ABSOLUTE_HARD_CAP_SECONDS,
     IDLE_DEFAULT_SECONDS,
     MACOS_SLEEP_CLOCK_DESIGN,
@@ -36,7 +36,7 @@ from keyholder.sessions import (  # noqa: E402
     sleep_aware_monotonic,
     validate_console_grant,
 )
-from keyholder.tokens import (  # noqa: E402
+from sealvra.tokens import (  # noqa: E402
     ROTATED_SESSION_REASON,
     TOKEN_PREFIX,
     generate_pop_key,
@@ -130,8 +130,8 @@ class TestTokens(unittest.TestCase):
         self.assertFalse(verify_pop(key, "GET", "h", "/p", b"", 1000, pop, now=699))
 
     def test_no_reveal_or_clipboard_surface(self):
-        import keyholder.sessions as s_mod
-        import keyholder.tokens as t_mod
+        import sealvra.sessions as s_mod
+        import sealvra.tokens as t_mod
         for mod in (s_mod, t_mod):
             names = " ".join(dir(mod)).lower()
             self.assertNotIn("reveal", names)
@@ -245,7 +245,7 @@ class TestNoExtension(unittest.TestCase):
         self.assertFalse(hasattr(store, "extend"))
         self.assertFalse(hasattr(store, "extend_session"))
         self.assertFalse(hasattr(store, "renew"))
-        import keyholder.sessions as mod
+        import sealvra.sessions as mod
         with open(mod.__file__) as fh:
             src = fh.read()
         self.assertNotIn("def extend", src)
@@ -785,7 +785,7 @@ class TestTokenRotation(unittest.TestCase):
 
 class TestDaemonClockSection(unittest.TestCase):
     def test_daemon_clock_helpers_and_store_delegation(self):
-        from keyholder.daemon import Daemon
+        from sealvra.daemon import Daemon
         daemon = Daemon()
         if _sys.platform == "linux":
             self.assertEqual(daemon.sleep_clock_name(), "CLOCK_BOOTTIME")

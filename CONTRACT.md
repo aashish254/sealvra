@@ -1,4 +1,4 @@
-# Keyholder v0.1 — Interface Contract (MANAGER-ISSUED, READ FIRST)
+# Sealvra v0.1 — Interface Contract (MANAGER-ISSUED, READ FIRST)
 
 This contract is normative for every worker. If your module spec and this
 contract disagree, this contract wins for interfaces; the v3 plan wins for
@@ -9,14 +9,14 @@ honest subset — never silently diverge.
 
 ## 0. Source of truth and hard limits
 
-- Normative plan: `~/workspace/keyholder-plan/KEYHOLDER-PLAN-V3-FINALCHECK.md`
+- Normative plan: `~/workspace/sealvra-plan/SEALVRA-PLAN-V3-FINALCHECK.md`
   (v3 wins over v1/v2; deleted/superseded passages in v3 are never built).
 - Build + local test ONLY. No push, no GitHub repo, no contact with GitHub
   or any real provider, no name announcement/reservation, no publishing.
   Nothing leaves this machine except loopback mock traffic.
 - No real keys/tokens/credentials anywhere: code, tests, fixtures, logs,
   docs. Use only clearly fake test keys (`TEST-ONLY-...`).
-- Working title Keyholder, binary/command `keyholder`. Do NOT rename to
+- Working title Sealvra, binary/command `sealvra`. Do NOT rename to
   Keyseal (unconfirmed, not trademark-cleared).
 - Stop version: v0.1 personal edition, single user, local-only, no sync
   ever, no company edition, no cloud, no server. GitHub + Gemini only.
@@ -30,21 +30,21 @@ honest subset — never silently diverge.
   If a dependency cannot be installed in your worker, the vault must fail
   closed and you must report it — never substitute a home-made cipher or
   a weaker KDF silently (scrypt is NOT an approved substitute in v0.1).
-- Repo root: `~/workspace/keyholder-build/`
-  - `keyholder/` — package, run as `python3 -m keyholder` from the root
+- Repo root: `~/workspace/sealvra-build/`
+  - `sealvra/` — package, run as `python3 -m sealvra` from the root
     (tests insert the root into `sys.path`).
   - `tests/` — pytest-style test files runnable with plain `python3 -m
     unittest` discovery OR `pytest` if available; do NOT assume pytest is
     installed. Prefer `unittest` so the manager's integration run works.
   - `scripts/`, `docs/`, `packs/`, `.github/workflows/`
 - Virtualenv (for local runs, never committed): `.venv/` in the build root.
-- Never write into `~/workspace/keyholder-plan/` or `~/workspace/your_files/`.
-  Keep deliverables under `~/workspace/keyholder-build/`, never `/tmp`.
+- Never write into `~/workspace/sealvra-plan/` or `~/workspace/your_files/`.
+  Keep deliverables under `~/workspace/sealvra-build/`, never `/tmp`.
 
 ## 2. Shared types (use these names and shapes exactly)
 
 ```python
-# keyholder/types.py — W01 owns this file; all workers import from it.
+# sealvra/types.py — W01 owns this file; all workers import from it.
 Provider = "github" | "gemini"   # literal strings only
 SessionClass = "destructive" | "write" | "read_account" | "read_public"
 Transport = "absolute" | "connect_allowed"  # default "absolute"
@@ -113,17 +113,17 @@ Transport = "absolute" | "connect_allowed"  # default "absolute"
   compared with `hmac.compare_digest`. The token string is returned to
   the caller exactly once at session creation and never logged, never
   written to disk, never put in an env var that survives the session.
-- PoP: every proxied request must carry `X-Keyholder-Session` (the token),
-  `X-Keyholder-PoP` = HMAC-SHA256 (PoP key, canonical string
+- PoP: every proxied request must carry `X-Sealvra-Session` (the token),
+  `X-Sealvra-PoP` = HMAC-SHA256 (PoP key, canonical string
   `METHOD\nHOST\nCANONICAL_PATH\nBODY_SHA256_HEX\nTIMESTAMP`),
-  and `X-Keyholder-Timestamp` (epoch seconds, max skew 300 s, nonce
+  and `X-Sealvra-Timestamp` (epoch seconds, max skew 300 s, nonce
   cache is append-only for the session lifetime — no eviction).
   PoP key lives in memory only, delivered via pipe/FD or in-process
   handoff, never in a 0600 file. Missing/invalid PoP = deny, no fallback
   to bare bearer. Agents that cannot sign use the wrapper/sidecar
   (W12) or are refused.
 - Session directory (if any temporary files are unavoidable): use
-  `tempfile.mkdtemp`, never a fixed `~/.keyholder/sessions/` path, and
+  `tempfile.mkdtemp`, never a fixed `~/.sealvra/sessions/` path, and
   delete the directory on session end. Session files must never contain
   a token or PoP key.
 - Control plane: there is NO file-based control token in v0.1. The CLI
@@ -171,7 +171,9 @@ Transport = "absolute" | "connect_allowed"  # default "absolute"
      Read-like POST exemption list lives in the provider pack.
   4. Policy decision (provider pack, signed, version-pinned). Unmodelled
      endpoint = deny. Decision cache: ALLOW-only, 60 s, never for
-     cap-conditioned or approval-gated rules.
+     cap-conditioned or approval-gated rules. The pack is the policy
+     source; the runtime deny floor layered over it is scoped and
+     additive only — see "Policy layering" below.
   5. Approval-gated calls: broker-owned approval (W08) BEFORE forwarding.
      No approval = no forward.
   6. Audit decision entry fsynced BEFORE forwarding (fail closed: if
@@ -198,6 +200,38 @@ Transport = "absolute" | "connect_allowed"  # default "absolute"
   a pack whose hash mismatches is refused, not loaded. Stale packs:
   refusal for destructive/metered sessions. Spend caps are estimates —
   copy must say "spend alerts (estimated)", never a guaranteed cap.
+
+### Policy layering: pack first, runtime deny floor second (owner decision, 2026-10-29)
+
+The signed provider pack remains the single policy source (§6 step 4,
+§7, §10). The composition root additionally applies a **deny floor**
+(`sealvra/runtime.py` `_deny_floor`) over the pack's answer. Its contract:
+
+- **Additive only.** The floor may turn a pack-allowed call into a
+  refusal. It may never loosen a refusal: a pack deny, or any pack
+  level-4, passes through untouched; a level-3 stays with the approver
+  (§6 step 5) and the floor does not pre-empt it. When the floor fires,
+  the adapter's `rule_id` is carried into the audit row (agent-facing
+  denial text stays generic, per "Denials to the agent are generic").
+- **Its own home is the runtime, not a pack.** The floor was deliberately
+  NOT moved into a re-signed pack: the pack signing key
+  `pk-a584d783bdcd5feb` is rotate-only because its private half was
+  destroyed, so re-signing would change `content_sha256` and break the
+  trust root for no security gain.
+- **Provider-asymmetric by fact, not by convenience.** The floor is
+  GitHub-only today because only the GitHub adapter carries hard denials
+  that the packs do not model (`sealvra/github.py` GH-SECRET-01:
+  `GET /repos/{owner}/{repo}/actions/secrets/{name}` is not in the
+  GitHub pack, while `GET /repos/**` is allowed — a read-class session
+  could otherwise enumerate secret names). **No Gemini floor exists and
+  none is to be invented** until a Gemini adapter hard denial exists to
+  enforce; a floor with nothing to enforce is an unmodelled deny surface
+  the pack already covers.
+- **Path and method only.** The floor calls `github.classify(method,
+  path)` with raw request bytes, not parsed JSON, so the adapter's
+  body-dependent rules are not reached here. That scope is a stated
+  limit of this layer, not an oversight; body-aware policy stays in the
+  pack and in the approval path.
 
 ## 7. Adapters (W06, W07 — rewritten, never copied from old R06/§9)
 
@@ -262,11 +296,11 @@ Transport = "absolute" | "connect_allowed"  # default "absolute"
 
 ## 9. CLI surface (W10) and error catalogue (one table, all surfaces)
 
-Commands (exact): `keyholder daemon start|stop|status`,
-`keyholder keys add|list|show|delete|rotate`,
-`keyholder sessions list|create|kill|kill-all`,
-`keyholder audit verify|export`, `keyholder doctor`, `keyholder prove-isolation`,
-`keyholder --help`, `keyholder --version`.
+Commands (exact): `sealvra daemon start|stop|status`,
+`sealvra keys add|list|show|delete|rotate`,
+`sealvra sessions list|create|kill|kill-all`,
+`sealvra audit verify|export`, `sealvra doctor`, `sealvra prove-isolation`,
+`sealvra --help`, `sealvra --version`.
 There is NO `keys reveal`, NO `--show-token`, NO `--print-token`,
 NO `sessions approve`, NO `sessions extend`, NO clipboard handoff.
 Any worker adding one of these fails the manager check.
@@ -312,26 +346,26 @@ scope by design — say so, do not imply otherwise.
 
 ## 12. Module file areas (do not write outside your area)
 
-- W01: `keyholder/types.py`, `keyholder/daemon.py`, `keyholder/broker.py`,
-  `keyholder/supervisor.py`, `tests/test_w01_daemon.py`
-- W02: `keyholder/vault.py`, `keyholder/crypto.py`, `tests/test_w02_vault.py`
-- W03: `keyholder/sessions.py`, `keyholder/tokens.py`, `tests/test_w03_sessions.py`
-- W04: `keyholder/proxy.py`, `tests/test_w04_proxy.py`
-- W05: `keyholder/policy.py`, `keyholder/packs.py`, `packs/*.json`,
+- W01: `sealvra/types.py`, `sealvra/daemon.py`, `sealvra/broker.py`,
+  `sealvra/supervisor.py`, `tests/test_w01_daemon.py`
+- W02: `sealvra/vault.py`, `sealvra/crypto.py`, `tests/test_w02_vault.py`
+- W03: `sealvra/sessions.py`, `sealvra/tokens.py`, `tests/test_w03_sessions.py`
+- W04: `sealvra/proxy.py`, `tests/test_w04_proxy.py`
+- W05: `sealvra/policy.py`, `sealvra/packs.py`, `packs/*.json`,
   `tests/test_w05_policy.py`
-- W06: `keyholder/github.py`, `tests/test_w06_github.py`
-- W07: `keyholder/gemini.py`, `tests/test_w07_gemini.py`
-- W08: `keyholder/approval.py`, `tests/test_w08_approval.py`
-- W09: `keyholder/audit.py`, `tests/test_w09_audit.py`
-- W10: `keyholder/cli.py`, `keyholder/__main__.py`, `keyholder/__init__.py`,
+- W06: `sealvra/github.py`, `tests/test_w06_github.py`
+- W07: `sealvra/gemini.py`, `tests/test_w07_gemini.py`
+- W08: `sealvra/approval.py`, `tests/test_w08_approval.py`
+- W09: `sealvra/audit.py`, `tests/test_w09_audit.py`
+- W10: `sealvra/cli.py`, `sealvra/__main__.py`, `sealvra/__init__.py`,
   `tests/test_w10_cli.py`
-- W11: `keyholder/gui.py`, `tests/test_w11_gui.py` (GUI must import
+- W11: `sealvra/gui.py`, `tests/test_w11_gui.py` (GUI must import
   safely headless: importing gui.py must not open a window or crash
   without a display; window creation only inside `main()`/a function
   the CLI calls explicitly)
-- W12: `keyholder/wrapper.py`, `keyholder/mcp.py`, `keyholder/probe.py`,
+- W12: `sealvra/wrapper.py`, `sealvra/mcp.py`, `sealvra/probe.py`,
   `tests/test_w12_integrations.py`
-- W13: `keyholder/platform.py`, `tests/test_w13_platform.py`
+- W13: `sealvra/platform.py`, `tests/test_w13_platform.py`
 - W14: `tests/test_adversarial.py` (+ `tests/adversarial_helpers.py`)
 - W15: `tests/test_e2e.py`, `tests/mock_providers.py`
 - W16: `scripts/windows_check.py`, `scripts/make_zipapp.py` (shared with
@@ -346,7 +380,7 @@ scope by design — say so, do not imply otherwise.
 - W20: `.github/workflows/ci.yml`, `scripts/make_zipapp.py`,
   `scripts/install.sh`, `scripts/install.ps1`, `scripts/uninstall.sh`,
   `scripts/uninstall.ps1`, `tests/test_w20_packaging.py`
-- Shared types file (`keyholder/types.py`) is W01's: W01 writes it FIRST
+- Shared types file (`sealvra/types.py`) is W01's: W01 writes it FIRST
   in substance (other workers may import it and, if a field is missing,
   report the gap to the manager instead of editing types.py themselves).
 
@@ -388,6 +422,12 @@ with a worker's earlier reading, this section wins.
    E2E proof for v0.1; W15's CLI-daemon real-path tests remain
    class-skipped (NOT-RUN) because they need the slice in item 5
    plus a test approver.
+   v0.2 note (2026-10-28, measured on this Mac): that skip no longer
+   stands. All 14 real-path tests run and pass; the four blockers in
+   item 5 are closed in code and the test-harness approver is used on
+   the approval path. Details and the two fixes that closed the last
+   two reds: BUILD-AND-TEST-REPORT.md §"Layer B closed — the two fixes"
+   and §"Mac measurements".
 
 ---
 
@@ -465,12 +505,12 @@ for v0.2 interfaces only; v3 wins for security rules.
   flip to refuse-unsigned is a single, tested change, recorded in
   the report — not a silent behaviour change.
 
-### 13.4 Git interposition boundary (W05 owns keyholder/git.py + git helper)
+### 13.4 Git interposition boundary (W05 owns sealvra/git.py + git helper)
 - The agent must NEVER receive the real key for git. The git path
-  is: a git credential helper (`keyholder git-credential`) that
+  is: a git credential helper (`sealvra git-credential`) that
   issues a session-scoped credential (proxy session token bound to
   one key, one repo scope, TTL-capped), plus a wrapper
-  (`keyholder git` / documented wrapper script) that logs push,
+  (`sealvra git` / documented wrapper script) that logs push,
   pull, and fetch attempts to the audit log and denies force-push
   and ref-deletion unless the matching approval exists.
 - Honest boundary, stated in docs and code: a git client run
@@ -515,24 +555,24 @@ for v0.2 interfaces only; v3 wins for security rules.
   to hit 10,000 is a failure of this round.
 
 ### 13.6 v0.2 file areas (workers stay inside their area; cross-area changes go through the manager)
-- W01: keyholder/daemon.py, keyholder/supervisor.py, tests/test_w01_daemon.py, tests/test_daemon_ipc.py (new)
-- W02: keyholder/approval.py, keyholder/proxy.py (approver callable only), tests/test_w08_approval.py additions via a new tests/test_approver_wiring.py (do not rewrite W08's file wholesale)
-- W03: keyholder/gui.py, tests/test_w11_gui.py
-- W04: keyholder/packs.py, packs/*.json, packs/*.sig, packs/trusted_keys.json, packs/revoked.json, scripts/sign_pack.py, tests/test_pack_signing.py (new)
-- W05: keyholder/git.py, scripts/git-credential-helper (new, executable), tests/test_git.py (new), docs/adapters.md (git section only)
+- W01: sealvra/daemon.py, sealvra/supervisor.py, tests/test_w01_daemon.py, tests/test_daemon_ipc.py (new)
+- W02: sealvra/approval.py, sealvra/proxy.py (approver callable only), tests/test_w08_approval.py additions via a new tests/test_approver_wiring.py (do not rewrite W08's file wholesale)
+- W03: sealvra/gui.py, tests/test_w11_gui.py
+- W04: sealvra/packs.py, packs/*.json, packs/*.sig, packs/trusted_keys.json, packs/revoked.json, scripts/sign_pack.py, tests/test_pack_signing.py (new)
+- W05: sealvra/git.py, scripts/git-credential-helper (new, executable), tests/test_git.py (new), docs/adapters.md (git section only)
 - W06: scripts/windows_check.py, scripts/install.ps1, scripts/uninstall.ps1, docs/windows.md, tests/test_w16_windows.py
 - W07: scripts/macos_check.py, docs/macos.md, tests/test_w17_macos.py
 - W08: tests/test_registry.py (new: master test registry), scripts/grep_gates.py (new), README Gate G0 table (with W20), tests/test_gates.py (new)
 - W09: tests/test_adversarial.py (additions only, append new classes), tests/adversarial_helpers.py
 - W10: tests/test_scale_engine.py, tests/test_generated_*.py (generated), tests/test_padding_audit.py (new)
-- W11: keyholder/proxy.py (policy hardening only, coordinate with W02), keyholder/policy.py, tests/test_w04_proxy.py, tests/test_w05_policy.py (additions)
-- W12: keyholder/vault.py, keyholder/crypto.py, tests/test_w02_vault.py (additions)
-- W13: keyholder/sessions.py, keyholder/tokens.py, keyholder/daemon.py (clock/sleep sections only, coordinate with W01), tests/test_w03_sessions.py (additions)
-- W14: keyholder/approval.py (ceremony hardening only, coordinate with W02), tests/test_w08_approval.py (additions)
-- W15: keyholder/audit.py, tests/test_w09_audit.py (additions)
-- W16: keyholder/wrapper.py, keyholder/mcp.py, keyholder/probe.py, tests/test_w12_integrations.py (additions)
-- W17: keyholder/cli.py (update-check payload only, coordinate with W18), keyholder/approval.py (no change), docs/*.md (egress sections), tests/test_egress.py (new)
-- W18: keyholder/cli.py (error table + defaults only, coordinate with W17), keyholder/gui.py (defaults only, coordinate with W03), tests/test_w10_cli.py (additions)
+- W11: sealvra/proxy.py (policy hardening only, coordinate with W02), sealvra/policy.py, tests/test_w04_proxy.py, tests/test_w05_policy.py (additions)
+- W12: sealvra/vault.py, sealvra/crypto.py, tests/test_w02_vault.py (additions)
+- W13: sealvra/sessions.py, sealvra/tokens.py, sealvra/daemon.py (clock/sleep sections only, coordinate with W01), tests/test_w03_sessions.py (additions)
+- W14: sealvra/approval.py (ceremony hardening only, coordinate with W02), tests/test_w08_approval.py (additions)
+- W15: sealvra/audit.py, tests/test_w09_audit.py (additions)
+- W16: sealvra/wrapper.py, sealvra/mcp.py, sealvra/probe.py, tests/test_w12_integrations.py (additions)
+- W17: sealvra/cli.py (update-check payload only, coordinate with W18), sealvra/approval.py (no change), docs/*.md (egress sections), tests/test_egress.py (new)
+- W18: sealvra/cli.py (error table + defaults only, coordinate with W17), sealvra/gui.py (defaults only, coordinate with W03), tests/test_w10_cli.py (additions)
 - W19: requirements.txt, scripts/sbom.py, scripts/repro_check.py, .github/workflows/ci.yml, docs/supply-chain.md, tests/test_w20_packaging.py (additions)
 - W20: README.md, docs/*.md (except windows.md/macos.md/adapters git section/egress sections), BUILD-AND-TEST-REPORT.md (manager finalises from measured runs), tests/test_e2e.py (real-path un-skip, with W01/W02)
 - Shared: no worker edits CONTRACT.md. If an interface above cannot be implemented, report it to the manager and implement the closest honest subset.
@@ -545,21 +585,26 @@ for v0.2 interfaces only; v3 wins for security rules.
   happens exactly once at forward time in `spend_for_forward` (production nonce +
   broker verify-and-consume, with grant-existence, destructive-grant, and deadline
   checks before any consume). One approval can never authorise two forwards.
-- CLI sessions are daemon-first: `keyholder sessions list/kill/kill-all` (and
+- CLI sessions are daemon-first: `sealvra sessions list/kill/kill-all` (and
   create, after its vault guard) route through daemon IPC when a daemon is running,
   and fall back to the process-local sessions module only when no daemon is running.
-  Live-proven for list/kill; create via CLI is implemented but not live-proven
-  (see below). CLI test harness stubs "no daemon" when stubbing the sessions
-  backend, so a daemon leaked by another test cannot hijack CLI tests.
-- CLI audit verify/export and CLI keys/sessions-create vault lookups still use a
-  stub-only interface (`audit.verify`/`audit.export`, `vault.get_key` do not exist on
-  the real classes). Real wiring needs an audit-root convention and a CLI↔vault
-  adapter; neither was guessed. These are open v0.2 gaps, not closed ones.
+  Live-proven for list/kill on 2026-10-28; **create is now live-proven too**
+  (2026-10-29, macOS): `tests/test_e2e.py` Layer B creates the session with the CLI
+  against a running daemon and uses it for every proxied call, 14/14 pass. CLI test
+  harness stubs "no daemon" when stubbing the sessions backend, so a daemon leaked by
+  another test cannot hijack CLI tests.
+- CLI audit verify/export and CLI keys/sessions-create vault lookups no longer use a
+  stub-only interface: `audit.verify(root=None)` and `audit.export()` resolve the
+  audit root the way the daemon does (`$SEALVRA_AUDIT_ROOT`, else the default) and
+  `vault.get_key(key_id)` exists as a module-level read, so the CLI↔vault adapter and
+  the audit-root convention both landed. Verified on macOS 2026-10-29: CLI `audit
+  verify` returns rc=0 with a real entry count, and `audit.verify` over IPC returns a
+  real status object (no longer KH-1005).
 - Zipapp reproducibility: `scripts/make_zipapp.py` excludes `__pycache__`/`*.pyc`.
   Cold-cache builds are byte-identical; v0.2 zipapp SHA-256 is recorded in the
   report (never reuse the v0.1 hash).
 - macOS checker scope: C6 gates SHIPPED dependencies (the zipapp packs
-  `keyholder/` only). Test files are excluded from the third-party import scan,
+  `sealvra/` only). Test files are excluded from the third-party import scan,
   as C5 already excludes them; an optional test-only import guarded by
   try/except ImportError -> skipTest is an honest NOT-RUN, not a product dependency.
 - TTL divergence (gap 9) resolved as a documented divergence, not a unification:

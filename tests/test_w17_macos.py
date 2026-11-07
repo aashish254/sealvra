@@ -90,8 +90,8 @@ class TestW17MacosChecker(unittest.TestCase):
     def test_linux_only_import_outside_platform_is_violation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "keyholder").mkdir()
-            (root / "keyholder" / "leaky.py").write_text(
+            (root / "sealvra").mkdir()
+            (root / "sealvra" / "leaky.py").write_text(
                 "import dbus\n\nTEST_KEY = 'TEST-ONLY-macos-fixture-001'\n",
                 encoding="utf-8",
             )
@@ -103,8 +103,8 @@ class TestW17MacosChecker(unittest.TestCase):
     def test_fake_success_stub_is_violation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "keyholder").mkdir()
-            (root / "keyholder" / "platform.py").write_text(
+            (root / "sealvra").mkdir()
+            (root / "sealvra" / "platform.py").write_text(
                 "def touch_id_approve():\n    return True\n",
                 encoding="utf-8",
             )
@@ -116,8 +116,8 @@ class TestW17MacosChecker(unittest.TestCase):
     def test_marked_not_implemented_stub_is_not_a_violation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "keyholder").mkdir()
-            (root / "keyholder" / "platform.py").write_text(
+            (root / "sealvra").mkdir()
+            (root / "sealvra" / "platform.py").write_text(
                 "def touch_id_approve():\n"
                 "    # NOT-IMPLEMENTED-ON-LINUX: requires LAContext\n"
                 "    raise NotImplementedError('requires macOS')\n",
@@ -130,8 +130,8 @@ class TestW17MacosChecker(unittest.TestCase):
     def test_unapproved_third_party_import_is_violation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "keyholder").mkdir()
-            (root / "keyholder" / "other.py").write_text(
+            (root / "sealvra").mkdir()
+            (root / "sealvra" / "other.py").write_text(
                 "import requests\n", encoding="utf-8")
             proc, report = run_checker(root)
             self.assertEqual(proc.returncode, 1)
@@ -141,8 +141,8 @@ class TestW17MacosChecker(unittest.TestCase):
     def test_compile_failure_is_violation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "keyholder").mkdir()
-            (root / "keyholder" / "broken.py").write_text(
+            (root / "sealvra").mkdir()
+            (root / "sealvra" / "broken.py").write_text(
                 "def broken(:\n", encoding="utf-8")
             proc, report = run_checker(root)
             self.assertEqual(proc.returncode, 1)
@@ -151,7 +151,12 @@ class TestW17MacosChecker(unittest.TestCase):
     def test_docs_state_not_run_honestly(self):
         doc = (BUILD_ROOT / "docs" / "macos.md").read_text(encoding="utf-8")
         self.assertIn("NOT-RUN", doc)
-        self.assertIn("nothing in this document was run on a Mac", doc)
+        # The headline must assert the native gap. It used to read
+        # "nothing in this document was run on a Mac", which became
+        # false once the suite ran on macOS in v0.2 Phase 1/3; the
+        # replacement states the invariant that run does not change.
+        self.assertIn("no native macOS behaviour is implemented or proven",
+                      doc)
         self.assertIn("TEST-ONLY", doc)
         for forbidden_claim in ("macOS binary is available",
                                 "tested on a Mac"):
@@ -209,7 +214,7 @@ class TestW17MacosReadinessV02(unittest.TestCase):
     def test_keychain_design_is_one_item_per_key_via_platform(self):
         sys.path.insert(0, str(BUILD_ROOT))
         try:
-            from keyholder.platform import macos_keychain_design
+            from sealvra.platform import macos_keychain_design
         finally:
             sys.path.remove(str(BUILD_ROOT))
         design = macos_keychain_design()
@@ -225,10 +230,10 @@ class TestW17MacosReadinessV02(unittest.TestCase):
                             for f in default["access_control_flags"]))
 
     def test_touch_id_order_is_gesture_first_confirm_second(self):
-        approval = (BUILD_ROOT / "keyholder" / "approval.py").read_text(
+        approval = (BUILD_ROOT / "sealvra" / "approval.py").read_text(
             encoding="utf-8")
         self.assertIn("card -> gesture -> confirm", approval)
-        platform = (BUILD_ROOT / "keyholder" / "platform.py").read_text(
+        platform = (BUILD_ROOT / "sealvra" / "platform.py").read_text(
             encoding="utf-8")
         self.assertIn("gesture + explicit confirm", platform)
         self.assertIn("reuse duration zero", platform)
@@ -240,9 +245,9 @@ class TestW17MacosReadinessV02(unittest.TestCase):
 
     def test_approver_xpc_spec_markers_present(self):
         combined = ""
-        for name in ("keyholder/platform.py", "keyholder/approval.py"):
+        for name in ("sealvra/platform.py", "sealvra/approval.py"):
             combined += (BUILD_ROOT / name).read_text(encoding="utf-8")
-        for marker in ("keyholder-approver", "unprivileged",
+        for marker in ("sealvra-approver", "unprivileged",
                        "metadata only", "single-use", "request hash",
                        "enclave", "code-signing identity"):
             self.assertIn(marker, combined, msg=f"missing XPC marker: {marker}")
@@ -272,7 +277,7 @@ class TestW17MacosReadinessV02(unittest.TestCase):
         # the native run is still NOT-RUN (docs/macos.md §6 D4).
         self.assertEqual(daemon["status"], "SPEC-ONLY")
         self.assertEqual(daemon["missing_marker_groups"], [])
-        daemon_py = (BUILD_ROOT / "keyholder" / "daemon.py").read_text(
+        daemon_py = (BUILD_ROOT / "sealvra" / "daemon.py").read_text(
             encoding="utf-8")
         self.assertIn('sys.platform == "darwin"', daemon_py)
         self.assertIn("getpeereid", daemon_py)
@@ -290,8 +295,8 @@ class TestW17MacosReadinessV02(unittest.TestCase):
     def test_missing_platform_tree_reports_gaps_without_violation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "keyholder").mkdir()
-            (root / "keyholder" / "other.py").write_text(
+            (root / "sealvra").mkdir()
+            (root / "sealvra" / "other.py").write_text(
                 "x = 1\n", encoding="utf-8")
             proc, report = run_checker(root)
             self.assertEqual(proc.returncode, 0, msg=proc.stdout)
@@ -302,8 +307,8 @@ class TestW17MacosReadinessV02(unittest.TestCase):
     def test_doc_missing_headline_is_violation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "keyholder").mkdir()
-            (root / "keyholder" / "other.py").write_text(
+            (root / "sealvra").mkdir()
+            (root / "sealvra" / "other.py").write_text(
                 "x = 1\n", encoding="utf-8")
             (root / "docs").mkdir()
             (root / "docs" / "macos.md").write_text(

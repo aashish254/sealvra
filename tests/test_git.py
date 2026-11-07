@@ -3,7 +3,7 @@
 No real GitHub, no real keys: every key is a TEST-ONLY fake, every
 session token is freshly generated in-process, and the only network
 use is a loopback fake remote that validates a session token the
-same way a Keyholder git proxy would (token + scope + expiry).
+same way a Sealvra git proxy would (token + scope + expiry).
 Real git is never run against a real remote: wrapper runs go to a
 recording stub (or a fake-git script for the named-remote path).
 """
@@ -23,9 +23,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from keyholder import git as g
-from keyholder.audit import AuditLog
-from keyholder.tokens import generate_token
+from sealvra import git as g
+from sealvra.audit import AuditLog
+from sealvra.tokens import generate_token
 
 REAL_KEY = "TEST-ONLY-ghp_fakekeythatisnotreal000000000000"
 HOST = "127.0.0.1"
@@ -122,7 +122,7 @@ class TestIssuer(unittest.TestCase):
         cred = g.GitCredentialIssuer(make_session(), token).issue(HOST, REPO, now=NOW)
         self.assertIsNotNone(cred)
         self.assertEqual(cred.password, token)
-        self.assertEqual(cred.username, "keyholder")
+        self.assertEqual(cred.username, "sealvra")
         self.assertNotIn(REAL_KEY, cred.password)
         self.assertTrue(cred.password.startswith("kh_sess_"))
 
@@ -151,7 +151,7 @@ class TestHelperHandling(unittest.TestCase):
         self.assertEqual(code, 0)
         fields = g.parse_credential_input(out)
         self.assertEqual(fields["password"], ctx.token)
-        self.assertEqual(fields["username"], "keyholder")
+        self.assertEqual(fields["username"], "sealvra")
         self.assertNotIn(REAL_KEY, out)
 
     def test_get_denies_out_of_scope_expired_and_missing_fields(self):
@@ -459,7 +459,7 @@ class FakeRemoteHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         auth = self.headers.get("Authorization", "")
         want = "Basic " + base64.b64encode(
-            f"keyholder:{self.expected_token}".encode()).decode()
+            f"sealvra:{self.expected_token}".encode()).decode()
         if self.path.startswith("/octo/hello") and auth == want \
                 and time.time() < self.expires_at:
             self.send_response(200)
@@ -498,7 +498,7 @@ class TestFakeRemoteCredentialFlow(unittest.TestCase):
             conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
             conn.request("GET", f"/{REPO}.git/info/refs",
                          headers={"Authorization": "Basic " + base64.b64encode(
-                             b"keyholder:wrong").decode()})
+                             b"sealvra:wrong").decode()})
             self.assertEqual(conn.getresponse().status, 401)
         finally:
             server.shutdown()
@@ -530,7 +530,7 @@ class TestAuditBackedWrapper(unittest.TestCase):
 class TestDoctorFlagsStandingGitCredentials(unittest.TestCase):
     def test_doctor_inventory_includes_git_credential_stores(self):
         import tempfile
-        from keyholder.cli import _doctor_findings
+        from sealvra.cli import _doctor_findings
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / ".git-credentials").write_text(
                 "https://user:TEST-ONLY-pass@github.com\n")

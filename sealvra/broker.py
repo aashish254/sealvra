@@ -12,9 +12,9 @@ Rules (CONTRACT §§2-4, v3 §1B/§1C/§1F):
   digest, compared with ``hmac.compare_digest``. The token string is
   never logged, never written to disk, never put in a Session.
 - PoP (CONTRACT §4): every proxied request must carry the session
-  token, ``X-Keyholder-PoP`` = HMAC-SHA256(PoP key, canonical
+  token, ``X-Sealvra-PoP`` = HMAC-SHA256(PoP key, canonical
   ``METHOD\\nHOST\\nCANONICAL_PATH\\nBODY_SHA256_HEX\\nTIMESTAMP``) and
-  ``X-Keyholder-Timestamp`` (max skew 300 s, nonce cache append-only
+  ``X-Sealvra-Timestamp`` (max skew 300 s, nonce cache append-only
   for the session lifetime -- no eviction). Missing/invalid PoP =
   deny, no fallback to bare bearer. The PoP key lives in memory
   only; it is returned once at creation alongside the token and is
@@ -162,6 +162,33 @@ class Broker:
         return (not session.killed and now < session.expires_at
                 and now < session.idle_deadline)
 
+    def reap_expired(self, now: float | None = None) -> list[str]:
+        """Terminate every session whose TTL or idle deadline has passed.
+
+        CONTRACT §3 makes expiry a TERMINATION, not a flag. The token
+        already denies (`is_live` is consulted on every call), but
+        nothing else ended the session: its worker process stayed alive
+        and `Supervisor.spawn` refuses a second live worker for the same
+        key, so an unreaped expiry leaves that compartment unusable until
+        the daemon restarts. Termination is the existing kill path
+        (deny-list, supervisor teardown, PoP zeroing); a session already
+        killed is left alone, so one expiry causes exactly one teardown.
+
+        Returns the session ids reaped by this call.
+        """
+        now = time.time() if now is None else now
+        with self._lock:
+            due = [sid for sid, session in self._sessions.items()
+                   if not session.killed and not self.is_live(session, now)]
+        reaped: list[str] = []
+        for session_id in due:
+            try:
+                self.kill_session(session_id)
+            except SessionNotFound:
+                continue
+            reaped.append(session_id)
+        return reaped
+
     def validate_token(self, token: str) -> Session | None:
         """Resolve a token to its live session, or None (generic).
 
@@ -188,6 +215,21 @@ class Broker:
         if stored is None or not hmac.compare_digest(stored, digest):
             return None
         return session
+
+    def pop_key(self, session_id: str) -> bytes | None:
+        """The PoP key for the proxy's own verification of a request.
+
+        This is the daemon-side read used by ``ProxyEngine.pop_key_for``;
+        it is NOT a handoff surface. The only place a PoP key leaves the
+        broker is the one-shot ``CreatedSession.pop_key`` returned by the
+        call that minted it (CONTRACT section 4: "returned once",
+        delivered via pipe/FD or in-process handoff).
+
+        A session id this broker never minted gets the same None as a
+        killed one: no oracle about whether a session ever existed.
+        """
+        with self._lock:
+            return self._pop_keys.get(session_id)
 
     def verify_pop(self, session: Session, *, method: str, host: str,
                    canonical_path: str, body_sha256_hex: str,

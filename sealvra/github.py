@@ -1,6 +1,6 @@
-"""Keyholder GitHub adapter (W06) — rewritten per audit f09 / plan v3 §1J.
+"""Sealvra GitHub adapter (W06) — rewritten per audit f09 / plan v3 §1J.
 
-This module is the GitHub provider pack logic for Keyholder v0.1:
+This module is the GitHub provider pack logic for Sealvra v0.1:
 fine-grained PAT primary, REST-only, GraphQL denied. It performs NO
 network calls to GitHub itself; every function here is pure
 classification / verification-helper logic over a method, path and

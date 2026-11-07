@@ -1,4 +1,4 @@
-"""Keyholder v0.1 — approval ceremony (W08).
+"""Sealvra v0.1 — approval ceremony (W08).
 
 Broker-owned approver ONLY. This module is the single place where an
 approval decision can originate, and the single place where the broker
@@ -64,7 +64,7 @@ Normative rules enforced here (not merely documented):
   agent free text in the headline, with the key fingerprint (12 hex)
   and a COUNT-ONLY negative list ("and N other keys are NOT included",
   never named lists). No card ever contains a passcode field:
-  Keyholder never asks for a device passcode inside an app window.
+  Sealvra never asks for a device passcode inside an app window.
 * Enrolment change, single posture (N-E6): kill-all + password-only
   next, pending HIGH/CRITICAL fail closed. Monitoring hooks are
   wake / unlock / approval / 15-min poll (see ``EnrolmentMonitor``);
@@ -151,7 +151,7 @@ from enum import Enum
 # Constants (CONTRACT §8, v3 N-E4/N-E5)
 # ---------------------------------------------------------------------------
 
-APPROVER_CHANNEL = "keyholder-approver"
+APPROVER_CHANNEL = "sealvra-approver"
 """The only channel whose decisions the broker accepts."""
 
 FORBIDDEN_CHANNELS = ("cli", "dashboard", "agent", "ui", "terminal")
@@ -173,7 +173,7 @@ ANOMALY_WINDOW_S = 86400.0
 CONSOLE_GRANT_MAX_S = 7200.0  # 2 h absolute cap
 
 CARD_FOOTER = (
-    "Keyholder never asks for your device passcode. "
+    "Sealvra never asks for your device passcode. "
     "Any window asking for it inside an app is fake."
 )
 PRESENCE_NOTE = (
@@ -347,7 +347,7 @@ def os_prompt_reason(card: "ApprovalCard") -> str:
     just the card — shows a matchable mark. The platform may or may
     not render this verbatim; see ``pairing_word_os_prompt_support``.
     """
-    reason = f"[{card.pairing}] Allow Keyholder to use key {card.key_label}"
+    reason = f"[{card.pairing}] Allow Sealvra to use key {card.key_label}"
     if card.seal_passphrase:
         reason += f" — seal: {card.seal_passphrase}"
     return reason
@@ -362,7 +362,7 @@ def pairing_word_os_prompt_support(platform: str) -> str:
     defence — card-frontmost + click-to-continue + confirm still hold.
     CLI note (f04 A-02, unverified on this Linux build): a CLI tool
     must NOT call the OS prompt directly; it must route the gesture
-    through the broker UI process so the dialog is Keyholder's, since
+    through the broker UI process so the dialog is Sealvra's, since
     a Terminal-invoked dialog's app name is not established here.
     """
     platform = platform.lower()
@@ -426,7 +426,7 @@ class ApprovalCard:
 
     def headline(self) -> str:
         return (
-            f"[{self.pairing}] Allow Keyholder to use key "
+            f"[{self.pairing}] Allow Sealvra to use key "
             f"{self.key_label} ({self.key_fingerprint_12}) on "
             f"{self.provider} — {self.permissions}"
         )
@@ -535,13 +535,13 @@ def detect_display_protocol(env: dict | None = None) -> str:
     """Return 'wayland' | 'x11' | 'headless' | 'unknown'.
 
     XWayland counts as X11 (N-N6): the toolkit backend, not
-    XDG_SESSION_TYPE, decides. An explicit ``KEYHOLDER_X11_BACKEND``
+    XDG_SESSION_TYPE, decides. An explicit ``SEALVRA_X11_BACKEND``
     marker (used by the forced-X11-backend CI test) also means X11.
     """
     import os
 
     env = env if env is not None else dict(os.environ)
-    if env.get("KEYHOLDER_X11_BACKEND") == "1":
+    if env.get("SEALVRA_X11_BACKEND") == "1":
         return "x11"
     if env.get("WAYLAND_DISPLAY"):
         # A Wayland session can still run an X11 client via XWayland;
@@ -604,7 +604,7 @@ def platform_tier_for(
             tier_label="T1 biometric (macOS design)",
             can_approve_destructive=True,
             enclave_bound_available=True,
-            notes="Design: sandboxed XPC keyholder-approver, enclave-bound "
+            notes="Design: sandboxed XPC sealvra-approver, enclave-bound "
             "signature for HIGH/CRITICAL. Enclave binding is a macOS-only "
             "design property; this Linux build reports it, not proves it.",
         )
@@ -1697,7 +1697,7 @@ def cli_or_dashboard_may_approve() -> bool:
 #
 #     approve(request: ApprovalRequest) -> Decision
 #
-# ``ApprovalRequest`` here is ``keyholder.types.ApprovalRequest`` when
+# ``ApprovalRequest`` here is ``sealvra.types.ApprovalRequest`` when
 # the caller has only the shared fields, and ``ProductionApprovalRequest``
 # (below) when the caller can also supply the ceremony fields the
 # broker needs to render an honest card (key label, 12-hex fingerprint,
@@ -1707,7 +1707,7 @@ def cli_or_dashboard_may_approve() -> bool:
 #
 # Test-harness marker (named here, in proxy.py, and in the wiring
 # tests; set ONLY by tests, never by production code):
-#     KEYHOLDER_TEST_APPROVER=1
+#     SEALVRA_TEST_APPROVER=1
 # A callable flagged with ``mark_test_approver`` — or passed through
 # the proxy's explicit ``test_approver`` parameter — is refused by the
 # proxy unless that marker is exactly "1". The production default is
@@ -1742,7 +1742,7 @@ def cli_or_dashboard_may_approve() -> bool:
 
 import os as _os
 
-TEST_APPROVER_ENV = "KEYHOLDER_TEST_APPROVER"
+TEST_APPROVER_ENV = "SEALVRA_TEST_APPROVER"
 """Env var set ONLY by tests to allow a test approver in the proxy.
 
 Production code must never set it. The proxy raises unless it is
@@ -1759,13 +1759,13 @@ def mark_test_approver(fn):
     """Flag a callable as a TEST approver. The proxy refuses it
     outside the test-harness marker (see ``test_approver_marker_set``).
     Production adapters (``proxy_approver``) are never flagged."""
-    fn._keyholder_test_approver = True  # type: ignore[attr-defined]
+    fn._sealvra_test_approver = True  # type: ignore[attr-defined]
     return fn
 
 
 def is_test_approver(fn) -> bool:
     """True iff ``fn`` was flagged with ``mark_test_approver``."""
-    return bool(getattr(fn, "_keyholder_test_approver", False))
+    return bool(getattr(fn, "_sealvra_test_approver", False))
 
 
 def compute_production_request_hash(
@@ -1804,7 +1804,7 @@ class ProductionApprovalRequest:
     ``approval_id`` is a caller placeholder (the broker mints the real
     pending id); ``key_id`` is the owning key; ``session_pseudonym``
     is the audit pseudonym for the session (never a token). A plain
-    ``keyholder.types.ApprovalRequest`` is also accepted by
+    ``sealvra.types.ApprovalRequest`` is also accepted by
     ``RealApprover.approve`` and converted with ``key_id`` =
     ``session_pseudonym`` and no card data, which denies unless the
     caller also supplies card data via ``card_resolver`` (see
