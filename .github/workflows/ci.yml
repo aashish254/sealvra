@@ -255,7 +255,7 @@ jobs:
       - name: Rebuild zipapp independently of the build job's artifact
         run: python scripts/make_zipapp.py --output dist/rebuilt.pyz
       - name: Download build artifact for comparison
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0 (F16-C7)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v4.3.0 (F16-C7)
         with:
           name: sealvra-linux
           path: rebuild-compare
@@ -280,12 +280,12 @@ jobs:
     permissions: {}
     steps:
       - name: Download build artifact (no source checkout)
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0 (F16-C7)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v4.3.0 (F16-C7)
         with:
           name: sealvra-linux
           path: sign-build
       - name: Download rebuild artifact (no source checkout)
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0 (F16-C7)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v4.3.0 (F16-C7)
         with:
           name: sealvra-rebuild
           path: sign-rebuild
