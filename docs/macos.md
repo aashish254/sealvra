@@ -455,7 +455,7 @@ locally and present it as the Gatekeeper test.
 ## 7. v0.2 session-list defect (measured on this Mac, 2026-10-31)
 --------------------------------------------------------------------
 
-Command: `sealvra sessions list` with no daemon running.  
+Command: `sealvra sessions list` with no daemon running.
 Result: exit 1, error KH-1006: backend error: module 'sealvra.sessions' has no attribute 'list_sessions'.
 
 **Root cause:** CLI sessions commands route through daemon IPC when a daemon is running; without one they fall back to the process-local sessions module, which lacks `list_sessions()`, `create_session()`, `kill_session()`, and `kill_all()` as module-level names. Those exist only as methods on `SessionStore` (sealvra/sessions.py:640+) and are invoked via IPC `sessions.list` from the daemon.
@@ -465,4 +465,3 @@ Result: exit 1, error KH-1006: backend error: module 'sealvra.sessions' has no a
 **Fix priced as needs-owner:** wire `sealvra.sessions` to a SessionStore or provide module-level proxies matching the CLI's call shape; keep IPC-first, fallback-second policy but ensure the fallback actually implements the commands listed in README.md. Record in docs/CLI-SERVICES.md with explicit notes on what runs without a daemon.
 
 The design note in sealvra/cli.py at :718–727 and :1122–1136 documents that IPC is first, local store second — this build measures that claim but exposes the missing implementation gap. This replaces the 2026-10-28 snapshot claim that "CLI sessions are not on daemon IPC and `sessions list` failed KH-1006" — IPC *is* live-proven (a daemon-created session is always found by `sessions list`), but the non-daemon fallback remains unimplemented.
-

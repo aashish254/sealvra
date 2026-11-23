@@ -2142,11 +2142,11 @@ def add_key(provider: str, label: str, secret: str | bytes,
     store = open_vault()
     key_id = "key-" + secrets.token_hex(8)
     wk = wrapping_key_for(key_id)
-    
+
     # Generate default display_name if not provided
     if display_name is None:
         display_name = f"{provider.title()} • {key_id.split('-')[-1][:4].upper()}"
-    
+
     store.store_secret(
         key_id, provider, secret_bytes, wrapping_key=wk,
         extra_header={
@@ -2312,4 +2312,3 @@ def needs_rotation(key_id: str) -> bool | None:
     except (AuthRequired, VaultError):
         return None
     return None if record is None else record.needs_rotation
-

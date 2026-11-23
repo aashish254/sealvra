@@ -31,7 +31,7 @@ All session commands route through daemon IPC when a daemon is running. Without 
 
 ## v0.2 Known limitation: non-daemon fallback gaps
 
-Command: `sealvra sessions list` with no daemon running.  
+Command: `sealvra sessions list` with no daemon running.
 Result: exit 1, error KH-1006: backend error: module 'sealvra.sessions' has no attribute 'list_sessions'.
 
 The same failure applies to `sessions create`, `kill`, and `kill-all` in a no-daemon environment because these commands exist only as methods on `SessionStore` (sealvra/sessions.py:640+) and are invoked via IPC from the daemon. The CLI stubs in tests.test_w10_cli provide fake implementations for unit testing.
@@ -98,4 +98,3 @@ The daemon stores sessions in memory only: daemon death is session death. The re
 - Signed DMG + Gatekeeper (§6 G)
 
 These remain NOT-RUN until a Mac owner runs them with TEST-ONLY keys.
-
