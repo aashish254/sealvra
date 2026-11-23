@@ -55,13 +55,13 @@ column leaves; (2) the audit could not fail; (3) the Tk checkbox asked for
 22px and the filter radiobuttons for 26px, under the 28px floor the mockups
 enforce, fixed with `padding=(0, 6)` on both styles.
 
-**Three defects surfaced in this vet:** 
+**Three defects surfaced in this vet:**
 (1) **sessions-list KH-1006** — `sealvra sessions list` without a daemon exits 1,
 error backend error: module 'sealvra.sessions' has no attribute 'list_sessions';
 with a daemon → exit 0, correct listing. Documented as needs-owner in README.md
-and §"v0.2 sessions list defect". 
+and §"v0.2 sessions list defect".
 (2) CLI "sessions list" prose claim needed the "requires running daemon" note —
-fixed in README.md:175 with the v0.2 note block. 
+fixed in README.md:175 with the v0.2 note block.
 (3) The mockup control height floor (28px) is now measured both in Chromium via
 `probe-tk-targets.cjs` (min-height on label.check) and in Tk via
 `probe-tk-targets.py`, but the two layers use different mechanisms (CSS min-height

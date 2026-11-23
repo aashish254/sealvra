@@ -1061,7 +1061,7 @@ def _cmd_keys(args, out) -> int:
         if args.keys_cmd == "list":
             keys = vault.list_keys()
             output_format = getattr(args, 'output', 'text')
-            
+
             # JSON output (metadata only)
             if output_format == 'json':
                 import json
@@ -1069,11 +1069,11 @@ def _cmd_keys(args, out) -> int:
                 out.write(json.dumps(data, indent=2))
                 out.write("\n")
                 return 0
-            
+
             # Text output with optional grouping
             if not keys:
                 out.write("no keys in vault\n")
-            
+
             if getattr(args, 'by_provider', False):
                 # Group by provider
                 by_provider = {}
@@ -1082,7 +1082,7 @@ def _cmd_keys(args, out) -> int:
                     if provider not in by_provider:
                         by_provider[provider] = []
                     by_provider[provider].append(record)
-                
+
                 for provider in sorted(by_provider.keys()):
                     out.write(f"=== {provider.title()} ===\n")
                     for record in by_provider[provider]:
@@ -1130,7 +1130,7 @@ def _cmd_keys(args, out) -> int:
                             f"{_field(record, 'key_id')}`. This warning stays "
                             "until rotation is recorded.\n"
                         )
-            
+
             if output_format != 'json':
                 out.write(
                     "Broker-observed departures are counted in the audit log; "
@@ -1180,7 +1180,7 @@ def _cmd_keys(args, out) -> int:
             label = args.label or _ask("Label for this key: ").strip()
             if not label:
                 raise _err("KH-2001", "label must not be empty")
-            
+
             # Prompt for display name (user-friendly name) if not provided via arg
             if args.display_name:
                 display_name_input = args.display_name.strip()
@@ -1227,7 +1227,7 @@ def _cmd_keys(args, out) -> int:
             ever_pasted = answer in ("yes", "don't know")
             secret = _ask_secret("Paste key (input hidden, never printed): ")
             try:
-                record = vault.add_key(provider, label, secret, ever_pasted, 
+                record = vault.add_key(provider, label, secret, ever_pasted,
                                       display_name_input if display_name_input else None)
             finally:
                 # Transient only: the CLI keeps no copy of the secret.
@@ -1369,7 +1369,7 @@ def _cmd_sessions_daemon(client, args, out) -> int:
     if args.sessions_cmd == "list":
         result = client.request("sessions.list")
         sessions_data = result.get("sessions", [])
-        
+
         # JSON output (metadata only)
         if getattr(args, 'output', 'text') == 'json':
             import json
@@ -1377,7 +1377,7 @@ def _cmd_sessions_daemon(client, args, out) -> int:
             out.write(json.dumps(data, indent=2))
             out.write("\n")
             return 0
-        
+
         # Text output (possibly compact)
         live, terminated = _split_live_sessions(sessions_data)
         if not live:
@@ -1407,7 +1407,7 @@ def _cmd_sessions_daemon(client, args, out) -> int:
                         f"transport {_field(item, 'transport')}  "
                         f"expires {_field(item, 'expires_at')}\n"
                     )
-            
+
             if terminated:
                 out.write(
                     f"{len(terminated)} terminated session(s) not listed above "
@@ -1524,7 +1524,7 @@ def _cmd_sessions(args, out) -> int:
     try:
         if args.sessions_cmd == "list":
             sessions_data = sessions.list_sessions()
-            
+
             # JSON output (metadata only)
             if getattr(args, 'output', 'text') == 'json':
                 import json
@@ -1532,7 +1532,7 @@ def _cmd_sessions(args, out) -> int:
                 out.write(json.dumps(data, indent=2))
                 out.write("\n")
                 return 0
-            
+
             # Text output (possibly compact)
             live, terminated = _split_live_sessions(sessions_data)
             if not live:
@@ -1561,7 +1561,7 @@ def _cmd_sessions(args, out) -> int:
                             f"transport {_field(item, 'transport')}  "
                             f"expires {_field(item, 'expires_at')}\n"
                         )
-                
+
                 if terminated:
                     out.write(
                         f"{len(terminated)} terminated session(s) not listed above "
